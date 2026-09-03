@@ -153,10 +153,10 @@ This is the project's headline distributed-systems demonstration and receives th
 | TEST-INT-002 | FR-013 | Server down mid-session | Clear client-side error | — | Not Run |
 | TEST-TLS-001 | ADR-007 | RMI-over-TLS round trip | Succeeds | `VaultServiceTlsIntegrationTest` — `ping()` and `login()` both succeed over real TLS; also manually verified against a live cross-process server | **Pass** |
 | TEST-TLS-002 | ADR-007, SEC-004 | Plain client vs. TLS-only server | Connection rejected | `VaultServiceTlsIntegrationTest.aPlainNonTlsClientCannotConnectToTheTlsOnlyRegistry` | **Pass** |
-| TEST-UI-001 | NFR-007 | Invalid login in UI | Error shown, no crash | — | Not Run |
-| TEST-UI-002 | NFR-007 | Lock state visibility | Indicated in list | — | Not Run |
-| TEST-UI-003 | NFR-007 | Upload button disabled state | Correct enable/disable | — | Not Run |
-| TEST-UI-004 | FR-004, NFR-007 | Session expiry mid-use | Prompts re-login | — | Not Run |
+| TEST-UI-001 | NFR-007 | Invalid login in UI | Error shown, no crash | Implemented (`LoginFrame.errorMessage` maps `AUTHENTICATION_FAILED` → "Invalid username or password.", re-enables the Login button, clears the password field) and code-reviewed; **not interactively confirmed this session** — see Context.md Phase 8 log (the sandbox's X display became unresponsive mid-verification, an environment issue, not a code defect) | Implemented, manual confirmation pending |
+| TEST-UI-002 | NFR-007 | Lock state visibility | Indicated in list | Implemented (`FileTableModel.lockStateLabel`: "Unlocked" / "Locked (you)" / "Locked (another user)", always plain text per UIUX.md §7) and code-reviewed; one live screenshot confirms the Login screen renders correctly and connects, but the dashboard/file-list view specifically was not reached interactively this session | Implemented, manual confirmation pending |
+| TEST-UI-003 | NFR-007 | Upload button disabled state | Correct enable/disable | Implemented (`DashboardFrame.setBusy(true)` disables `uploadButton` for the call's duration) and code-reviewed; not interactively confirmed this session | Implemented, manual confirmation pending |
+| TEST-UI-004 | FR-004, NFR-007 | Session expiry mid-use | Prompts re-login | Implemented (`handleFailure` detects `INVALID_SESSION`, shows a "Session Expired" dialog, returns to `LoginFrame`) and code-reviewed; not interactively confirmed this session | Implemented, manual confirmation pending |
 | TEST-DEPLOY-001 | ADR-009 | Remote client → cloud VM | Full journey succeeds | — | Not Run |
 | TEST-DEPLOY-002 | ADR-009 | Server restart on VM | Resumes service | — | Not Run |
 

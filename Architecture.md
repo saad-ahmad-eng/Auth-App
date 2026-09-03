@@ -52,13 +52,14 @@ This refines the `auth`-derived skeleton from [p1.md](p1.md) §10 by naming the 
 
 ## 2. Components
 
-### 2.1 Swing RMI Client
+### 2.1 Swing RMI Client — **implemented, Implementation Phase 8**
 - **Purpose:** User-facing desktop application.
-- **Responsibilities:** Render login screen and dashboard (see [UIUX.md](UIUX.md)); look up the `VaultService` stub via the RMI registry; invoke remote methods; encrypt/decrypt file payloads at the client boundary if application-layer AES is used (ADR-007); present errors and lock/connection state.
+- **Responsibilities:** Render login screen and dashboard (see [UIUX.md](UIUX.md)); look up the `VaultService` stub via the RMI registry; invoke remote methods; encrypt/decrypt file payloads at the client boundary using application-layer AES (ADR-007); present errors and lock/connection state.
+- **Implementation:** `authlock-client.ui` — `LoginFrame` (§UIUX.md §1), `DashboardFrame` (§UIUX.md §2), `FileTableModel` (file table backing store), `SwingAsync` (runs every blocking RMI call off the Event Dispatch Thread via `SwingWorker`, delivering the result back on the EDT — every remote-call button is disabled for the call's duration, per UIUX.md §5). `ClientMain` is reduced to process-level bootstrap (TLS config, shared-key loading, host resolution) before handing off to `LoginFrame`.
 - **Inputs:** User interaction (credentials, file selection, lock/unlock clicks).
-- **Outputs:** RMI calls to the server; local file system reads/writes (for files the user opens/saves).
-- **Dependencies:** `VaultService` stub, RMI registry lookup, [API-spec.md](API-spec.md) DTOs.
-- **Security considerations:** Never persists the session token to disk beyond the running session; never trusts server responses without validating expected shape; does not perform authorization decisions itself (server is authoritative per Development-rules §3 "Never trust the client" — this cuts both ways: the client also must not assume its own UI-level checks are sufncient).
+- **Outputs:** RMI calls to the server; local file system reads/writes (for files the user opens/saves via `JFileChooser` — UIUX.md §5 "safe file selection").
+- **Dependencies:** `VaultService` stub, RMI registry lookup, [API-spec.md](API-spec.md) DTOs, shared `AesGcmCipher`.
+- **Security considerations:** Never persists the session token to disk beyond the running session (held only as a `String` field on `DashboardFrame`); the password `char[]` is zeroed immediately after use in `LoginFrame` (same limitation as `VaultServiceImpl` — it must still pass through a `String` for the RMI call itself, per API-spec.md's `login` signature); never trusts server responses without validating expected shape; does not perform authorization decisions itself (server is authoritative per Development-rules §3 "Never trust the client" — this cuts both ways: the client also must not assume its own UI-level checks are sufficient — e.g. Lock/Unlock button enablement is a UX convenience, not a security boundary; the server re-checks ownership on every call regardless).
 
 ### 2.2 RMI Registry
 - **Purpose:** Name service the client uses to locate the `VaultService` remote object.

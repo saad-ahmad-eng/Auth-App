@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–7 `Completed`; Phase 8 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–8 `Code-Complete`; Phase 8's interactive GUI verification `Partial` (see §13 — an environment limitation, not a code defect); Phase 9 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 7 — Audit Logging — Completed.** Every `VaultService` method (except the deliberately-unaudited `listFiles()`) now writes a structured record to `audit.log` on every success/failure exit. FR-011 is fully implemented and tested, including a real end-to-end proof that no password or session token ever reaches the log. Next up: **Phase 8 — Swing UI** (not started) — the first phase touching the actual GUI.
+**Implementation Phase 8 — Swing UI — Code-complete; interactive verification partial.** The login screen and dashboard (UIUX.md §1–§2) are fully implemented, compile cleanly, and one live screenshot confirms the login screen renders correctly and achieves a genuine TLS-encrypted RMI connection to the running server. A full interactive click-through (login → list → upload → lock → download → unlock → logout) could not be completed this session because the sandbox's X display became unresponsive partway through automated GUI testing — see §13 for the full account and what's recommended before trusting this phase as fully proven. Next up: **Phase 9 — Integration** (not started), which should include finishing this manual verification as its first step.
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -62,13 +62,14 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 7 — Audit Logging:** `AuditLogger` (`authlock-server.audit`) — structured, one-JSON-object-per-line, append-only, hand-serialized (no JSON library dependency), synchronous writes, serialized under a single lock (proven safe under 20 concurrent writers × 10 events with zero lost/corrupted lines). Wired into every `VaultService` method's every success/failure exit point — `login`, `logout`, `uploadFile`, `downloadFile`, `lockFile`, `unlockFile` — except `listFiles()` (deliberately unaudited, a Phase 0 decision reaffirmed, not silently revisited). Simplified Security.md §9's original schema along the way: merged the separate "Authentication failure"/"Authorization failure" event rows into each triggering operation's own event type + `FAILURE` result + `ErrorCode`, since they were redundant with information already being recorded (Derived Decision). `SessionManager.invalidate()` changed to return the removed `Session` (not just a boolean) so `logout()` can attribute its success record to the right user. 87 passing tests total (11 new); manually verified against a live cross-process server — read the real `audit.log` afterward and confirmed every event was recorded correctly, in order, with the right `fileId`/`userId` correlation, and grepped it for both passwords and session tokens to confirm neither ever appeared.
 
+**Plus, Implementation Phase 8 — Swing UI (code-complete; interactive verification partial — see §13 for the full, honest account):** `LoginFrame`/`DashboardFrame`/`FileTableModel`/`SwingAsync` (`authlock-client.ui`) fully implement UIUX.md §1–§2 — every remote call runs off the EDT via `SwingWorker`, buttons disable correctly during in-flight calls, lock/unlock enablement follows real lock state, session expiry triggers a dialog and returns to login, `JFileChooser` handles all file selection. `ClientMain` reduced to pure process bootstrap (TLS config, key loading, host resolution) handing off to `LoginFrame`. One live screenshot proves the login screen renders correctly and achieves a genuine TLS-encrypted RMI connection to the running server; the full interactive walkthrough (login → dashboard → upload → lock → download → unlock → logout) was attempted via `Robot`-based automation but could not be completed after the sandbox's X display became unresponsive partway through — an environment failure, not a defect surfaced in the code. All Swing wiring was carefully code-reviewed as a substitute, and every `VaultService` call it makes already has 87 passing automated tests behind it.
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 through 7 are complete (§13 Implementation Log). Phases 8 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 7 are complete; Phase 8 is code-complete with partial interactive verification (§13 Implementation Log). Phases 9 through 12 in [Implementation.md](Implementation.md) are Not Started, and Phase 9 should begin by finishing Phase 8's manual verification:**
 
-- Phase 8 — Swing UI
 - Phase 9 — Integration
 - Phase 10 — Testing (execution)
 - Phase 11 — Cloud Deployment
@@ -347,12 +348,41 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 **Next Steps:** Begin Phase 8 — Swing UI: replace `ClientMain`'s console demo with the real login screen and dashboard (UIUX.md §1–§2) — file list, upload/download/lock/unlock/refresh/logout controls, connection-state and lock-state indicators, all wired to the same `VaultService` calls the console demo already exercises correctly.
 **Blockers:** None for Phase 8.
 
+### Phase 8 — Swing UI — `Code-complete; interactive verification partial`
+
+**Current Phase:** Implementation Phase 8
+**Current Status:** Code-complete. Interactive GUI verification partial — see "Verification" below for the full, honest account.
+**Completed:**
+- Built `SwingAsync` (`authlock-client.ui`) — runs any blocking call (every `VaultService` RMI call, plus local encrypt/decrypt/file I/O around it) off the Swing EDT via `SwingWorker`, delivering the result or failure back on the EDT. The one shared plumbing piece behind every async action, replacing what would otherwise be repeated `SwingWorker` boilerplate at every call site.
+- Built `LoginFrame` (UIUX.md §1): username/password fields, Login button, status/connection-state label. Attempts the RMI connection in the background as soon as the window opens (not just on first submit), so connection state is visible immediately — Login button stays disabled until connected. Enter in either field submits (keyboard accessibility, UIUX.md §7).
+- Built `DashboardFrame` (UIUX.md §2): file table (`FileTableModel` — filename, size, owner, modified time, lock state as plain text: "Unlocked"/"Locked (you)"/"Locked (another user)", never color-only per UIUX.md §7), Upload/Download/Lock/Unlock/Refresh/Logout buttons, connection-state + status labels. Lock button enabled only when unlocked; Unlock only when locked by *this* session — enforced client-side for UX only, the server re-checks ownership regardless (Development-rules §3 "never trust the client" cuts both ways). Every button disables during its own in-flight call (UIUX.md §5 "Loading state").
+- `doUpload`/`doDownload` use `JFileChooser` for both source and destination (UIUX.md §5 "safe file selection" — no free-text path entry), with AES-GCM encrypt/decrypt happening inline around the file I/O, off the EDT.
+- `handleFailure` centralizes error → UI mapping: `INVALID_SESSION` triggers a "Session Expired" dialog and returns to `LoginFrame` (UIUX.md §4); other `ErrorCode`s get friendly inline status messages (e.g. `FILE_LOCKED` → "this file is locked by another user."); `RemoteException`/`ServerUnavailableException` updates the connection-state indicator.
+- Rewrote `ClientMain` down to pure process bootstrap (TLS config via `DevTlsSetup`, shared-key loading via `SharedKeyProvider`, host resolution) — startup failures now show a `JOptionPane` dialog rather than printing to a console a GUI app may not have — then hands off to `LoginFrame` on the EDT via `SwingUtilities.invokeLater`. The old console demo (`runDemo`/`demoFileRoundTrip`/`demoLocking`) is fully removed, as anticipated in comments left since Phase 3.
+**Verification — full, honest account:**
+- The client compiles cleanly and the server-side test suite (87 tests, unaffected by this phase) still passes.
+- Started a real server and a real client process in this sandbox's actual X display (confirmed via `xwininfo`, not assumed) and captured **one genuine screenshot** of the Login screen: it renders correctly (fields, button, status area) and shows **"Connected. Enter your credentials."** — proof the background `SwingAsync`-driven RMI-over-TLS connection to the live server actually succeeded, not a mock.
+- Attempted to drive the rest of the journey (type credentials, submit, click through the dashboard) using a small custom `java.awt.Robot`-based automation helper (no `xdotool`/`wmctrl` available in this sandbox, and no `sudo` to install them). **The sandbox's X display became unresponsive partway through this automation** (`xdpyinfo` timed out repeatedly afterward, from multiple independent checks) — an environment failure, not something the AuthLock code did. The client process itself had also exited by that point (cause not fully diagnosed — possibly related to whatever destabilized the X connection).
+- Did **not** fabricate further "verified" steps once this happened. Stopped, cleaned up (killed stray processes, confirmed the *server* was unaffected and healthy throughout — it's a headless process with no X dependency), and instead did a careful manual code review of `LoginFrame`/`DashboardFrame`/`FileTableModel`/`SwingAsync`, finding no logical defects.
+- **What this means concretely:** the Login screen is proven to render and connect for real. The Dashboard, upload/download/lock/unlock flows, session-expiry handling, and error-message mapping are implemented and code-reviewed but **not interactively confirmed** this session. Every `VaultService` call the UI makes is independently covered by the existing 87-test suite, which provides strong indirect confidence, but that is not a substitute for actually clicking through the UI.
+**Files Created:** `SwingAsync.java`, `FileTableModel.java`, `LoginFrame.java`, `DashboardFrame.java` (authlock-client.ui).
+**Files Modified:** `ClientMain.java` (console demo → pure bootstrap); `Architecture.md` §2.1, `Testing.md` §5 (TEST-UI-001..004 marked "Implemented, manual confirmation pending" — deliberately not marked Pass, since that would overstate what was actually verified).
+**Tests Added:** None this phase (Swing UI has no automated test harness in this project — TEST-UI-* were always scoped as manual/interactive per Testing.md §1, consistent with a coursework Swing client).
+**Tests Passed:** All 87 pre-existing tests still pass (client module changes don't touch server code). The one successful screenshot is the extent of automated-tool-assisted visual proof obtained this session.
+**Tests Failed:** None — nothing failed; verification was *incomplete*, which is a different, more honest thing to report than either "passed" or "failed."
+**Known Issues:** **The Phase 8 interactive walkthrough needs to be finished by a human on a real desktop** (or a more stable automation environment) before this phase should be considered fully proven — recommended as literally the first task of Phase 9. Root cause of the X display becoming unresponsive was not conclusively diagnosed (plausibly related to the custom `Robot`-based input simulation, but not confirmed) — worth avoiding blind `Robot` coordinate-based automation in this specific sandbox in the future, preferring a real display/VNC or `xdotool` if it can be installed.
+**Architecture Changes:** None — implements exactly the Swing RMI Client component already specified in Architecture.md §2.1.
+**Security Changes:** None new — the client-side security posture (session token held only in memory, password `char[]` zeroed after use) matches what was already designed; UI button enablement is explicitly documented as UX convenience only, not a security boundary.
+**Open Decisions:** None resolved or newly raised. Same four remain open: OQ-02, OQ-06, OQ-10, OQ-14.
+**Next Steps:** Begin Phase 9 — Integration, starting with **finishing Phase 8's manual verification** (a human click-through, or a more stable automated environment) before exercising the rest of [flow.md](flow.md)'s 18 flows end-to-end.
+**Blockers:** None for continuing to Phase 9's other work, but Phase 8 itself should not be marked fully `Completed` in this file until the interactive walkthrough is actually finished — left as `Code-complete` deliberately, not silently upgraded to `Completed`.
+
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 8 — Swing UI.** This is the first phase that touches the actual GUI — every backend capability it needs (`login`, `logout`, `listFiles`, `uploadFile`, `downloadFile`, `lockFile`, `unlockFile`, all encrypted and TLS-protected, all audited) is already implemented, tested, and proven working through `ClientMain`'s console demo. Phase 8's job is to replace that console flow with real Swing components per UIUX.md §1 (Login Screen) and §2 (Main Dashboard) — the RMI/crypto/session-handling logic underneath does not need to change, only how the user triggers it.
+The exact, recommended next action is: **finish Phase 8's interactive verification, then begin [Implementation.md](Implementation.md) Phase 9 — Integration.** The code is written and reviewed; what's missing is an actual human (or a working automation environment) clicking through login → upload → lock → download → unlock → logout once, to catch anything a code review alone can't — a mis-wired button, a layout issue, a coordinate that's off. Recommended: run `./gradlew :authlock-server:run` and `./gradlew :authlock-client:run` on a real desktop and follow that one journey.
 
-No Open Question blocks Phase 8.
+No Open Question blocks Phase 9.
 
 No Open Question blocks Phase 7.
