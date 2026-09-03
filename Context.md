@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phase 1 (Project Skeleton) `Completed`; Phase 2 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phase 1 `Completed`; Phase 2 (RMI Infrastructure) `Completed`; Phase 3 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 1 — Project Skeleton — Completed.** Next up: **Phase 2 — RMI Infrastructure** (not started).
+**Implementation Phase 2 — RMI Infrastructure — Completed.** Next up: **Phase 3 — Authentication & Session Management** (not started).
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -54,9 +54,8 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 ## 5. Pending Work
 
-**Phase 1 is complete (§13 Implementation Log). Phases 2 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 and 2 are complete (§13 Implementation Log). Phases 3 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 2 — RMI Infrastructure
 - Phase 3 — Authentication & Session Management
 - Phase 4 — File Vault
 - Phase 5 — Distributed Locking
@@ -189,10 +188,34 @@ See [Security.md](Security.md) for the complete threat model, SEC-001–SEC-010 
 
 Build verification performed this session: `./gradlew build` → `BUILD SUCCESSFUL`; `./gradlew :authlock-server:run` and `./gradlew :authlock-client:run` both print their expected placeholder output.
 
+### Phase 2 — RMI Infrastructure — `Completed`
+
+**Current Phase:** Implementation Phase 2
+**Current Status:** Completed
+**Completed:**
+- Defined `VaultService` (extends `Remote`) in `authlock-common`, currently declaring only `ping()` — a deliberate Phase 2 scope limit; `login/logout/listFiles/uploadFile/downloadFile/lockFile/unlockFile` are added incrementally as their owning phases (3–5) are implemented, per Development-rules.md §1.
+- Added `RmiConfig` (common) with the registry port (1099), service name, and the previously-TBD **fixed RMI object port, now confirmed as 5000** — updated TRD.md §2.7 and Architecture.md §3 accordingly (both were marked "TBD" in the documentation phase).
+- Implemented `VaultServiceImpl` (server) — `UnicastRemoteObject` subclass exporting on a configurable port (production: `RmiConfig.SERVICE_PORT`; tests: ephemeral port 0 to avoid clashing with a real instance).
+- Implemented `ServerMain` — creates/attaches to the registry, rebinds the service, returns (RMI's own non-daemon threads keep the JVM alive).
+- Implemented client-side RMI plumbing in `authlock-client.rmi`: `RmiConnection` (registry lookup) and `ServerUnavailableException` (translates lookup/transport failures into a single client-facing exception — the mechanism FR-013 will surface through the Swing UI in Phase 8).
+- Updated `ClientMain` to connect, call `ping()`, and print the result; host is overridable via `-Dauthlock.server.host=<host>` or a CLI arg, anticipating Phase 11's cloud VM connection without further code changes.
+- Added `VaultServiceRmiIntegrationTest` (TEST-INT-001) — automated, uses a dedicated test registry port + ephemeral object port for isolation.
+**Files Created:** `RmiConfig.java`, `VaultService.java`, `VaultServiceImpl.java`, `RmiConnection.java`, `ServerUnavailableException.java`, `VaultServiceRmiIntegrationTest.java`.
+**Files Modified:** `ServerMain.java`, `ClientMain.java` (real logic replacing Phase 1 stubs); `TRD.md` §2.7, `Architecture.md` §3 (port TBD → confirmed); `Testing.md` §5 (TEST-INT-001 → Pass).
+**Tests Added:** `VaultServiceRmiIntegrationTest` (TEST-INT-001).
+**Tests Passed:** TEST-INT-001 — both the automated JUnit test and a manual real cross-process run (`./gradlew :authlock-server:run` in the background, then a separate `./gradlew :authlock-client:run`) succeeded; the client received `"AuthLock VaultService is alive at <timestamp>"`. The server-unavailable path was also manually verified: with no server running, the client printed `Server unavailable: Could not reach AuthLock server at localhost:1099` and exited non-zero, confirming FR-013's console-level precursor works before Phase 8 gives it a UI.
+**Tests Failed:** None.
+**Known Issues:** None new. The Phase 1 "no direct `java -jar`" limitation (application plugin doesn't set `Main-Class`) still applies — use `./gradlew :module:run`.
+**Architecture Changes:** None beyond confirming the previously-open RMI object port number (5000) — not a design change, just resolving a documented TBD.
+**Security Changes:** None — Phase 2 carries no authentication/session/encryption logic by design.
+**Open Decisions:** No Open Questions were resolved or newly raised by Phase 2.
+**Next Steps:** Begin Phase 3 — Authentication & Session Management (user credential store, password hashing, `SessionManager`, wire `login()`/`logout()` into `VaultService`, add session validation to every future method).
+**Blockers:** None for Phase 3.
+
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 2 — RMI Infrastructure** — define the `VaultService` remote interface in `authlock-common`, implement the registry bootstrap in `authlock-server`'s `ServerMain`, implement the client-side lookup in `authlock-client`'s `ClientMain`, and verify a basic round trip over `localhost` (TEST-INT-001).
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 3 — Authentication & Session Management.** Before/while starting it, note two Open Questions with working defaults that Phase 3 will encode into real code: **OQ-01** (credential provisioning — no registration flow, so a seed user list or admin-only provisioning path is needed) and **OQ-08** (session idle-timeout value, default ~30 minutes). Neither blocks starting the phase, but both should be consciously confirmed rather than left as an unstated default once real code exists.
 
-No Open Question blocks Phase 2. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally.
+No Open Question blocks Phase 3. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally.

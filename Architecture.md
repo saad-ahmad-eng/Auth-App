@@ -171,7 +171,7 @@ Per `auth` §8 and ADR-009:
 | **Cloud VM** | A single free-tier instance (AWS EC2 t2.micro / Oracle Cloud Always Free / GCP free tier — provider choice is Open Question OQ-06), running a Linux distribution with a compatible JRE installed. |
 | **Public IP** | The VM is assigned a static public IP; `-Djava.rmi.server.hostname=<publicIP>` is set on the server JVM so stubs handed to remote clients embed the correct routable address (a well-known RMI pitfall otherwise — stubs default to embedding an internal/loopback address). |
 | **RMI registry** | Started in-process on the server (see §2.2) on port 1099 (or a configured alternative). |
-| **RMI object port** | Fixed (not ephemeral) so the security group can open a single predictable port — see TRD §2.6. |
+| **RMI object port** | Fixed (not ephemeral) so the security group can open a single predictable port — see TRD §2.6. Confirmed as **5000** (`RmiConfig.SERVICE_PORT`) in Implementation Phase 2. |
 | **Firewall/security group** | Inbound rules opened only for the registry port and the fixed object port, from the client's expected source (or `0.0.0.0/0` for coursework demo convenience, documented as a conscious, reviewed trade-off). |
 | **Client-to-cloud communication** | The Swing client connects using the VM's public IP and the registry port, identical code path to the localhost case — proving genuine distributed operation per `auth` §8. |
 | **Process management** | Server started via `nohup java -jar authlock-server.jar &` or a systemd unit, so it survives SSH session termination and individual client disconnects. |

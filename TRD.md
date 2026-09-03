@@ -54,7 +54,7 @@ Server disk must accommodate the vault's stored files plus metadata and audit lo
 | Port | Purpose | Direction |
 |---|---|---|
 | 1099 (default, configurable) | RMI Registry | Client → Server |
-| Fixed application port (e.g. 5000 — TBD, see ADR/Open Question) | RMI remote object (`VaultService`) | Client → Server |
+| 5000 (fixed — confirmed Implementation Phase 2, `RmiConfig.SERVICE_PORT`) | RMI remote object (`VaultService`) | Client → Server |
 
 ---
 

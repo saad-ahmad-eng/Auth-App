@@ -147,7 +147,7 @@ This is the project's headline distributed-systems demonstration and receives th
 | TEST-SEC-003 | SEC-004 | Tampered ciphertext | Rejected | — | Not Run |
 | TEST-SEC-004 | SEC-004 | Wire inspection | No plaintext content | — | Not Run |
 | TEST-SEC-005 | SEC-008 | Log inspection | No secrets present | — | Not Run |
-| TEST-INT-001 | ADR-001 | Basic RMI round trip | Succeeds | — | Not Run |
+| TEST-INT-001 | ADR-001 | Basic RMI round trip | Succeeds | Automated (`VaultServiceRmiIntegrationTest`) and manual cross-process `localhost` run both succeeded — client received `ping()` response | **Pass** |
 | TEST-INT-002 | FR-013 | Server down mid-session | Clear client-side error | — | Not Run |
 | TEST-UI-001 | NFR-007 | Invalid login in UI | Error shown, no crash | — | Not Run |
 | TEST-UI-002 | NFR-007 | Lock state visibility | Indicated in list | — | Not Run |
