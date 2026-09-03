@@ -1,0 +1,6 @@
+// authlock-common — shared code between client and server:
+// the VaultService remote interface (Phase 2), DTOs (Backend.md §2), and the
+// application-level exception/error model (API-spec.md §3).
+// Deliberately depends on nothing beyond the JDK.
+
+apply plugin: 'java-library'

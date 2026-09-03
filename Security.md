@@ -1,0 +1,187 @@
+# Security.md — Security Specification
+
+**Project:** AuthLock
+**Related documents:** [PRD.md](PRD.md) · [Decision.md](Decision.md) (ADR-004, ADR-006, ADR-007, ADR-008) · [Architecture.md](Architecture.md) · [API-spec.md](API-spec.md)
+
+---
+
+## 1. Threat Model
+
+| Threat Actor | Description | Primary Concern |
+|---|---|---|
+| **External attacker** | Party with network access to the RMI server but no valid credentials. | Attempting login, exploiting exposed ports/services. |
+| **Malicious client** | A modified/custom RMI client sending crafted or malformed requests. | Bypassing client-side validation, sending invalid tokens, oversized payloads, path-traversal filenames. |
+| **Compromised client** | A legitimate user's machine/session under attacker control. | Abusing valid session tokens; acting outside the user's intent. |
+| **Network attacker (on-path)** | Party able to observe or tamper with traffic between client and cloud VM. | Eavesdropping on credentials/file contents; replay or tampering with RMI calls. |
+| **Unauthorized user** | Party without valid credentials attempting to reach protected operations. | Any call other than `login()` without a valid session. |
+| **Concurrent/racing client** | A legitimate but poorly-timed client racing another for the same lock. | Not malicious, but must not be able to corrupt lock/file state through timing. |
+| **Malicious file uploader** | An authenticated user uploading a crafted file (oversized, path-traversal filename, malicious content). | Server storage abuse, path traversal, disk exhaustion. |
+| **Malicious downloader** | An authenticated user attempting to download a file they should not access, or another user's locked file inappropriately. | Data confidentiality/authorization boundary. |
+| **Server compromise** | The server host itself is compromised. | Out of full mitigation scope for a coursework project, but audit logs, key handling, and password hashing should limit blast radius (defense in depth) — see §7 Key Management and §3 Password Storage. |
+
+---
+
+## 2. Security Objectives
+
+| Objective | How AuthLock Addresses It |
+|---|---|
+| **Confidentiality** | File payloads encrypted in transit (ADR-007); credentials never transmitted or stored in plaintext. |
+| **Integrity** | Authenticated encryption (AES-GCM) detects tampering with file payloads in transit; audit log records provide a tamper-evidence trail for operations. |
+| **Authentication** | Every session begins with server-verified username/password (SEC-001). |
+| **Authorization** | Every non-login call requires a valid session token, and lock-protected operations require lock ownership (SEC-007, SEC-009). |
+| **Accountability** | Every security-relevant event is attributed to a session/user and durably logged (SEC-008, Audit Logging §6). |
+| **Availability** | Stale-lock recovery and session expiry prevent a single failed/crashed client from permanently denying service to others (§5). |
+
+---
+
+## 3. Authentication (SEC-001, SEC-002)
+
+- **Credential handling:** Username and password are submitted together in a single `login()` RMI call. They must never be logged (see §6, "Do not log passwords").
+- **Password storage (SEC-002):** `auth` does not specify a hashing scheme — this is an **Engineering Requirement**, not optional. Passwords **must never** be stored in plaintext. **Recommendation:** bcrypt or PBKDF2WithHmacSHA256 (available via Java's `javax.crypto` without external dependencies) with a per-user random salt and a work factor tuned to keep verification under ~250ms on the deployment VM.
+- **Password verification:** The server hashes the submitted password with the stored user's salt/parameters and compares digests using a constant-time comparison (`MessageDigest.isEqual` or the library's built-in verifier) to avoid timing side-channels.
+- **Authentication failures:** A failed login (bad username OR bad password) returns the same generic `AUTHENTICATION_FAILED` error and the same approximate response time, so the server does not leak whether a given username exists (username enumeration prevention). Every failure is audited (§6).
+- **Session creation:** On success, the server creates a session record and returns an opaque token (see §4). No password material is echoed back.
+- **Session expiration:** Sessions expire after a configurable idle timeout (**Recommendation:** 30 minutes — **Open Question OQ-08**, final value TBD) and/or an absolute maximum lifetime.
+- **Logout:** Immediately and irrevocably invalidates the session token server-side.
+- **Token validation:** Every non-`login()` remote call validates the token against the live session table before performing any other work (fail closed).
+
+---
+
+## 4. Authorization (SEC-007)
+
+| Action | Authorization Rule |
+|---|---|
+| `login()` | No prior authentication required (this *is* the authentication step). |
+| `logout()`, `listFiles()`, `uploadFile()` | Requires a valid, non-expired session token. |
+| `downloadFile()` | Requires a valid session token. Download of a file currently locked by another user: **Open Question OQ-09** — either (a) allowed read-only, or (b) blocked entirely. `auth` does not specify; default recommendation is (a) allow read-only download (locking protects writes, not reads), pending confirmation. |
+| `lockFile()` | Requires a valid session token; fails if the file is already locked by a different, non-expired session (FR-010). |
+| `unlockFile()` | Requires a valid session token **and** that the requesting session is the current lock owner (FR-009). A non-owner unlock attempt returns `LOCK_NOT_OWNED` and is audited as an authorization failure. |
+
+There is a single authenticated-user authorization tier in scope (no admin/guest roles in the client — see PRD §6 Out of Scope). Every authenticated user has equal rights over vault files except lock ownership, which is exclusive per file.
+
+---
+
+## 5. Session Security (SEC-003)
+
+| Aspect | Design |
+|---|---|
+| **Token generation** | Generated server-side using a cryptographically secure random source (`java.security.SecureRandom`), never derived from predictable data (username, timestamp alone, sequence numbers). |
+| **Token entropy** | **Recommendation:** ≥128 bits of randomness (e.g., a 32-byte `SecureRandom` value, Base64/hex-encoded), making brute-force guessing infeasible. |
+| **Token storage** | Server holds tokens only in the in-memory (or lightly persisted, per ADR-006) session table, keyed by token value; the token itself is never written to the audit log — only a session/user identifier is logged (§6). |
+| **Token expiration** | Idle timeout and absolute max lifetime as in §3; expired tokens are purged from the session table and rejected on use. |
+| **Invalid token handling** | Any call with an unknown, malformed, or expired token returns `INVALID_SESSION` and is audited as an authorization failure; no operation is attempted. |
+| **Logout invalidation** | Token removed from the session table synchronously on `logout()` — no grace period. |
+| **Session cleanup** | A periodic sweep (or lazy check-on-access) removes expired sessions from the table to bound memory growth. |
+
+---
+
+## 6. File Security
+
+| Aspect | Design |
+|---|---|
+| **Encryption at rest** | `auth` requires encryption "during transfer" (in-transit); at-rest encryption is **not explicitly required**. **Recommendation** (not a hard requirement): consider at-rest encryption as a future enhancement if time allows — tracked as **Open Question OQ-10**. Default posture: rely on VM-level disk access controls for at-rest protection in the initial scope. |
+| **Encryption in transit** | Mandatory — see §7 Encryption. |
+| **File integrity** | A checksum (e.g., SHA-256) of the original file is computed at upload time, stored in file metadata, and re-verified at download time so any corruption (accidental or malicious) is detectable. |
+| **File naming** | Client-supplied filenames are treated as untrusted display metadata only. Stored files are named/keyed by a server-generated internal file ID (ADR-010); the original filename is preserved only as a metadata field, never used to construct a filesystem path directly. |
+| **Path traversal protection (SEC-006)** | Because storage never uses the client-supplied name as a path component, path traversal (`../../etc/passwd`-style names) is structurally prevented rather than merely filtered. Defense in depth: also reject/sanitize filenames containing path separators or `..` before even accepting them as metadata. |
+| **Unauthorized file access** | Every `downloadFile()`/`uploadFile()` call is authorization-checked per §4; the vault directory is not directly exposed to clients (no direct filesystem/network share access, only via RMI calls). |
+| **File overwrite protection** | Uploading a file with the same declared name as an existing file is treated as a new version only if the uploading session holds the lock on that file's ID (or it is explicitly a new upload creating a new file ID) — exact semantics to be finalized; default: uploads always create a new file record unless an explicit "update existing file" operation is invoked while holding its lock. **Open Question OQ-11.** |
+| **Temporary files** | Any temporary files created during upload/download (e.g., partial-transfer staging) are written to a server-controlled temp directory, cleaned up after the operation completes or fails, and never left readable by other processes beyond normal OS file permissions. |
+
+---
+
+## 7. Encryption
+
+*(Status: see ADR-007, `Proposed` pending final key-management confirmation.)*
+
+| Question | Answer |
+|---|---|
+| **What gets encrypted** | File payload bytes transferred between client and server (upload and download). Credentials are protected primarily via the authentication design (§3) and, if RMI-over-TLS is adopted, by the transport layer. |
+| **When** | At the point of transfer — files are encrypted by the sender immediately before transmission and decrypted by the receiver immediately after receipt; never held in plaintext on the wire. |
+| **Where** | Application-layer encryption performed in the client (before `uploadFile()`) and server (before returning bytes from `downloadFile()`), using Java's `javax.crypto` (JCE) APIs. |
+| **Algorithm** | AES-256-GCM (authenticated encryption — provides confidentiality **and** integrity in one primitive), per ADR-007. |
+| **Key management** | **Open Question OQ-05 (critical, must resolve before implementation):** options are (a) a pre-shared symmetric key distributed out-of-band to client and server config, acceptable for coursework scope but weak key-distribution story; (b) a per-session key derived during login via a key-exchange step; (c) rely on RMI-over-TLS for transport confidentiality instead of/in addition to application-layer AES, removing the need for application-level key distribution. **Recommendation:** adopt RMI-over-TLS (`SslRMIClientSocketFactory`/`SslRMIServerSocketFactory`) as the primary transport-confidentiality control (simplest, covers the whole channel including credentials), and treat application-layer AES-GCM on file payloads as a defense-in-depth / explicit demonstration of "Java cryptography APIs" for the module's LO4. Final decision must be recorded by updating ADR-007 to `Accepted` before implementation begins. |
+| **IV/nonce requirements** | If application-layer AES-GCM is used: a fresh, random 96-bit IV/nonce per encryption operation, never reused with the same key (GCM nonce reuse breaks confidentiality and integrity). IV is transmitted alongside ciphertext (it is not secret). |
+| **Authentication/integrity protection** | GCM's built-in authentication tag is verified on decryption; a failed tag verification is treated as a tampering event, the operation is rejected, and it is audited as an error. |
+
+**Explicitly prohibited:** any custom/home-rolled cipher or protocol (per [p1.md](p1.md) §8). Only standard JCE primitives are used.
+
+---
+
+## 8. Distributed Lock Security (SEC-009)
+
+| Aspect | Design |
+|---|---|
+| **Who can acquire locks** | Any authenticated session, on any unlocked file, via `lockFile()`. |
+| **Lock ownership** | A lock record stores the owning session ID (not just user ID, so a user's second concurrent session does not implicitly share the lock — **Engineering Assumption**, flagged as **Open Question OQ-12**: should locks be owned per-session or per-user?). |
+| **Lock release** | Only the owning session may call `unlockFile()` successfully (FR-009); the server verifies ownership before releasing. |
+| **Lock timeout** | Every lock has a server-enforced maximum hold duration (**Recommendation:** e.g., 15 minutes, configurable — **Open Question OQ-13** for the final value) after which it is eligible for automatic release. |
+| **Stale lock recovery** | If a session holding a lock expires or disconnects (e.g., client crash) without unlocking, the server's session-cleanup sweep (§5) also releases any locks owned by that expired session, preventing permanent denial of service. |
+| **Concurrent requests** | Lock acquisition is implemented as a single atomic operation (e.g., `ConcurrentHashMap.putIfAbsent` or an explicit per-file mutex guarding a check-and-set), never a separate check-then-set across two steps, to close the race window. |
+| **Race-condition prevention** | See [TRD.md](TRD.md) §3 "Synchronization" and [Testing.md](Testing.md) Concurrency Test — this is validated by an explicit multi-client concurrent-lock test that must show exactly one winner every run. |
+
+---
+
+## 9. Audit Logging (SEC-008, NFR-010)
+
+Every event below is written as a structured (e.g., one JSON object per line), append-only record.
+
+| Event | Trigger |
+|---|---|
+| Login (success) | Valid credentials verified, session created. |
+| Login (failure) | Invalid credentials submitted. |
+| Logout | Explicit `logout()` call, or session expiry-driven cleanup. |
+| Upload | `uploadFile()` completes (success or failure). |
+| Download | `downloadFile()` completes (success or failure). |
+| Lock | `lockFile()` attempted (granted or denied). |
+| Unlock | `unlockFile()` attempted (granted or denied — including non-owner attempts). |
+| Authentication failure | Any rejected login. |
+| Authorization failure | Any call rejected due to invalid/expired session or lock-ownership mismatch. |
+| Error | Any unexpected server-side error during a remote call. |
+
+### Event Metadata Schema
+
+| Field | Description |
+|---|---|
+| `timestamp` | ISO-8601 UTC timestamp of the event. |
+| `eventType` | One of the event names above. |
+| `userId` / `sessionId` | Identifier of the acting user/session (never the raw token — see §5). |
+| `operation` | The remote method invoked. |
+| `fileId` | Target file identifier, where applicable. |
+| `result` | `SUCCESS` / `FAILURE` plus, on failure, the error code from [API-spec.md](API-spec.md) Error Model. |
+| `clientInfo` | Remote client host/IP as seen by the RMI server, where available. |
+
+**Explicitly prohibited from the audit log:** plaintext passwords, password hashes, raw session tokens, encryption keys, and full file contents.
+
+---
+
+## 10. Security Controls Matrix
+
+| Control | Threat Mitigated | Requirement ID |
+|---|---|---|
+| Server-side password hashing (salted, slow KDF) | Credential theft from storage compromise | SEC-002 |
+| Constant-time credential comparison | Timing side-channel username/password enumeration | SEC-001 |
+| Generic authentication-failure message | Username enumeration | SEC-001 |
+| Opaque, high-entropy session tokens | Session hijacking via token guessing | SEC-003 |
+| Session validation on every non-login call | Unauthorized access | SEC-007 |
+| Session/lock expiry + cleanup sweep | Denial of service via abandoned sessions/locks | SEC-003, SEC-009 |
+| Atomic lock acquisition | Lock race condition / concurrent modification | SEC-009 |
+| Lock-ownership check on unlock | Unauthorized lock release | SEC-009 |
+| AES-256-GCM (and/or RMI-over-TLS) | Eavesdropping and tampering in transit | SEC-004 |
+| Server-generated file IDs, no client path input | Path traversal | SEC-006 |
+| Checksum verification on upload/download | Data corruption/tampering detection | — (Reliability/Integrity) |
+| Structured, append-only audit log excluding secrets | Lack of accountability; secret leakage via logs | SEC-008 |
+| Input validation on all RMI parameters | Malformed/malicious client input | SEC-010 |
+
+---
+
+## 11. Summary of Open Security Decisions
+
+The following are explicitly **not finalized** and must be resolved before implementation of the affected component (tracked centrally in [Context.md](Context.md)):
+
+- **OQ-05:** Final encryption key-management approach (pre-shared key vs. RMI-over-TLS vs. hybrid).
+- **OQ-08:** Session idle-timeout value.
+- **OQ-09:** Whether locked files may still be downloaded read-only by non-owners.
+- **OQ-10:** Whether at-rest encryption is implemented in this coursework scope.
+- **OQ-12:** Whether locks are owned per-session or per-user.
+- **OQ-13:** Final lock timeout duration.

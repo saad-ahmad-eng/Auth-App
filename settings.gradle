@@ -1,0 +1,5 @@
+rootProject.name = 'authlock'
+
+include 'authlock-common'
+include 'authlock-server'
+include 'authlock-client'

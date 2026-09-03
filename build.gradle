@@ -1,0 +1,26 @@
+// AuthLock — root build configuration
+// Applies shared settings (Java toolchain, repositories, test framework) to every subproject.
+// See TRD.md §4 (Development Environment) and Implementation.md Phase 1.
+
+subprojects {
+    apply plugin: 'java'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        testImplementation platform('org.junit:junit-bom:5.10.2')
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+    }
+
+    test {
+        useJUnitPlatform()
+    }
+}

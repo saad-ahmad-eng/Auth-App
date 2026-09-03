@@ -1,0 +1,174 @@
+# API-spec.md — Java RMI API Contract
+
+**Project:** AuthLock
+**Related documents:** [Backend.md](Backend.md) · [flow.md](flow.md) · [Security.md](Security.md) · [Architecture.md](Architecture.md)
+
+The complete remote contract exposed by the server is a single interface, `VaultService`, extending `java.rmi.Remote`. This is a **conceptual/logical contract** — exact Java signatures are an implementation-phase detail, but method names, parameters, return semantics, and error behavior below are binding.
+
+---
+
+## 1. VaultService — Method Contracts
+
+### `login(username, password) → sessionToken`
+
+| Aspect | Detail |
+|---|---|
+| **Purpose** | Authenticate a user and establish a session. |
+| **Parameters** | `username: String`, `password: String` |
+| **Return type** | `sessionToken: String` (opaque) |
+| **Exceptions** | `RemoteException` (transport failure); application error `AUTHENTICATION_FAILED` |
+| **Authentication requirement** | None (this call *establishes* authentication). |
+| **Authorization requirement** | None. |
+| **Side effects** | Creates a session record on success. |
+| **Audit event** | `LOGIN` (`SUCCESS` or `FAILURE`) — FR-011 |
+| **Concurrency behavior** | Stateless with respect to other calls; safe under concurrent logins from different or the same user. |
+| **Failure behavior** | Wrong username or wrong password both return `AUTHENTICATION_FAILED` (no distinction — SEC-001 enumeration prevention). |
+
+### `logout(sessionToken) → void`
+
+| Aspect | Detail |
+|---|---|
+| **Purpose** | Terminate a session. |
+| **Parameters** | `sessionToken: String` |
+| **Return type** | `void` (acknowledgement) |
+| **Exceptions** | `RemoteException`; `INVALID_SESSION` if token is already invalid |
+| **Authentication requirement** | Valid session token. |
+| **Authorization requirement** | Caller may only invalidate their own token (implicit — the token itself is the credential). |
+| **Side effects** | Removes/invalidates the session record; any locks held by this session are released (see [Security.md](Security.md) §8 stale-lock recovery — logout is a clean, immediate trigger of the same release path). |
+| **Audit event** | `LOGOUT` — FR-011 |
+| **Concurrency behavior** | Idempotent-safe: a second logout on an already-invalidated token yields `INVALID_SESSION` rather than an error. |
+| **Failure behavior** | Invalid/unknown/expired token → `INVALID_SESSION`. |
+
+### `listFiles(sessionToken) → List<FileMetadata>`
+
+| Aspect | Detail |
+|---|---|
+| **Purpose** | Retrieve the vault's file listing with metadata and lock state (FR-005). |
+| **Parameters** | `sessionToken: String` |
+| **Return type** | `List<FileMetadata>` (see §2 DTOs) |
+| **Exceptions** | `RemoteException`; `INVALID_SESSION` |
+| **Authentication requirement** | Valid session token. |
+| **Authorization requirement** | Any authenticated user may list all files (no per-file ACL beyond lock state, per PRD §6 scope). |
+| **Side effects** | None (read-only). |
+| **Audit event** | Not separately audited by default (read-only, low-risk) — **Open Question:** should listing be audited too? Default: no, to avoid log noise; can be added if the report needs it. |
+| **Concurrency behavior** | Safe under concurrent calls; reflects a point-in-time snapshot of metadata + lock state. |
+| **Failure behavior** | Invalid session → `INVALID_SESSION`. |
+
+### `uploadFile(sessionToken, filename, fileBytes, iv) → fileId`
+
+| Aspect | Detail |
+|---|---|
+| **Purpose** | Store a new file in the vault (FR-006). |
+| **Parameters** | `sessionToken: String`, `filename: String` (display name only), `fileBytes: byte[]` (ciphertext if client-side AES is used per ADR-007), `iv: byte[]` (nonce, if applicable) |
+| **Return type** | `fileId: String` |
+| **Exceptions** | `RemoteException`; `INVALID_SESSION`; `UPLOAD_FAILED` |
+| **Authentication requirement** | Valid session token. |
+| **Authorization requirement** | Any authenticated user may upload. |
+| **Side effects** | Persists file bytes under a new server-generated `fileId`; creates a `FileMetadata` record; computes checksum. |
+| **Audit event** | `UPLOAD` (`SUCCESS`/`FAILURE`) — FR-011 |
+| **Concurrency behavior** | Each upload creates an independent new `fileId` — concurrent uploads from different clients never contend with each other. |
+| **Failure behavior** | Invalid session → `INVALID_SESSION`; storage/I/O error or invalid filename → `UPLOAD_FAILED`. |
+
+### `downloadFile(sessionToken, fileId) → FileContent`
+
+| Aspect | Detail |
+|---|---|
+| **Purpose** | Retrieve a file's bytes (FR-007). |
+| **Parameters** | `sessionToken: String`, `fileId: String` |
+| **Return type** | `FileContent` DTO: `{ fileBytes: byte[], iv: byte[], checksum: String }` |
+| **Exceptions** | `RemoteException`; `INVALID_SESSION`; `FILE_NOT_FOUND`; `DOWNLOAD_FAILED` |
+| **Authentication requirement** | Valid session token. |
+| **Authorization requirement** | Any authenticated user may download (per default resolution of Open Question OQ-09 — locked files remain downloadable read-only unless OQ-09 is finalized otherwise). |
+| **Side effects** | None (read-only). |
+| **Audit event** | `DOWNLOAD` (`SUCCESS`/`FAILURE`) — FR-011 |
+| **Concurrency behavior** | Safe under concurrent downloads, including concurrent with an in-progress upload of a *different* file; concurrent with a lock held by another session (read is not blocked by a write lock, per OQ-09 default). |
+| **Failure behavior** | Invalid session → `INVALID_SESSION`; unknown `fileId` → `FILE_NOT_FOUND`; read/integrity error → `DOWNLOAD_FAILED`. |
+
+### `lockFile(sessionToken, fileId) → LockResult`
+
+| Aspect | Detail |
+|---|---|
+| **Purpose** | Acquire an exclusive lock on a file before editing (FR-008). |
+| **Parameters** | `sessionToken: String`, `fileId: String` |
+| **Return type** | `LockResult` DTO: `{ granted: boolean, ownerSessionHint: String? }` |
+| **Exceptions** | `RemoteException`; `INVALID_SESSION`; `FILE_NOT_FOUND`; application error `FILE_LOCKED` (or a `granted:false` result — see note) |
+| **Authentication requirement** | Valid session token. |
+| **Authorization requirement** | Any authenticated user may attempt to lock any unlocked file. |
+| **Side effects** | On success, creates a `FileLock` record owned by the caller's session. |
+| **Audit event** | `LOCK` (`SUCCESS`/`FAILURE`) — FR-011 |
+| **Concurrency behavior** | Atomic acquisition (Backend.md §3) — exactly one concurrent caller for the same `fileId` succeeds (FR-010). |
+| **Failure behavior** | Invalid session → `INVALID_SESSION`; unknown file → `FILE_NOT_FOUND`; already locked by another session → `FILE_LOCKED`. *(Design note: `FILE_LOCKED` may be modeled either as a thrown application exception or as `granted:false` in the returned DTO — final choice deferred to implementation; either satisfies this contract as long as it is used consistently.)* |
+
+### `unlockFile(sessionToken, fileId) → void`
+
+| Aspect | Detail |
+|---|---|
+| **Purpose** | Release a lock the caller holds (FR-009). |
+| **Parameters** | `sessionToken: String`, `fileId: String` |
+| **Return type** | `void` (acknowledgement) |
+| **Exceptions** | `RemoteException`; `INVALID_SESSION`; `FILE_NOT_FOUND`; `LOCK_NOT_OWNED` |
+| **Authentication requirement** | Valid session token. |
+| **Authorization requirement** | Caller's session must be the current lock owner. |
+| **Side effects** | Removes the `FileLock` record. |
+| **Audit event** | `UNLOCK` (`SUCCESS`/`FAILURE`) — FR-011 |
+| **Concurrency behavior** | Atomic check-owner-then-release. |
+| **Failure behavior** | Invalid session → `INVALID_SESSION`; unknown file → `FILE_NOT_FOUND`; not the lock owner (including "not locked at all") → `LOCK_NOT_OWNED`. |
+
+---
+
+## 2. Data Transfer Objects
+
+All DTOs crossing the RMI boundary implement `Serializable` with a declared `serialVersionUID` (TRD §3).
+
+### Request-side (implicit as method parameters above — no separate wrapper objects required for this scope, keeping the API simple per [p1.md](p1.md) §21).
+
+### `FileMetadata` (response)
+| Field | Type | Notes |
+|---|---|---|
+| `fileId` | `String` | |
+| `filename` | `String` | Original display name. |
+| `size` | `long` | |
+| `owner` | `String` | `userId` or display name. |
+| `createdAt` | `long`/`Instant`-equivalent | |
+| `modifiedAt` | `long`/`Instant`-equivalent | |
+| `lockState` | `String` (`UNLOCKED` / `LOCKED`) | Denormalized view — Lock Manager remains source of truth (Backend.md §2.3). |
+| `lockOwnerHint` | `String?` | Optional, for UI display (e.g., "locked by another user") — must not leak sensitive identity beyond what's appropriate; **Open Question:** display username or a generic "locked by another user"? Default: generic, to avoid unnecessary information disclosure. |
+
+### `FileContent` (response, from `downloadFile`)
+| Field | Type | Notes |
+|---|---|---|
+| `fileBytes` | `byte[]` | Ciphertext if application-layer AES is used. |
+| `iv` | `byte[]` | Nonce for AES-GCM, if applicable. |
+| `checksum` | `String` | For client-side integrity verification after decryption. |
+
+### `LockResult` (response, from `lockFile`)
+| Field | Type | Notes |
+|---|---|---|
+| `granted` | `boolean` | |
+| `ownerSessionHint` | `String?` | Present when `granted=false`; generic, not the raw token (SEC-003). |
+
+### Session information (returned implicitly as the `sessionToken` string; no richer session DTO is exposed to the client — the client only ever needs the opaque token, per SEC-003 minimal-disclosure principle).
+
+### Error information — see §3 Error Model.
+
+---
+
+## 3. Error Model
+
+Standardized application-level error codes, each mapped from the failure conditions described per-method above:
+
+| Code | Meaning | Raised By |
+|---|---|---|
+| `AUTHENTICATION_FAILED` | Invalid username or password. | `login` |
+| `INVALID_SESSION` | Session token missing, unknown, or expired. | Every method except `login` |
+| `UNAUTHORIZED` | Authenticated but not permitted to perform this specific action (reserved for future role-based checks — currently subsumed by `LOCK_NOT_OWNED` for the one authorization boundary this project has). | Reserved |
+| `FILE_NOT_FOUND` | Referenced `fileId` does not exist. | `downloadFile`, `lockFile`, `unlockFile` |
+| `FILE_LOCKED` | File is currently locked by a different session. | `lockFile` |
+| `LOCK_NOT_OWNED` | Caller attempted to unlock a file they do not hold the lock on. | `unlockFile` |
+| `UPLOAD_FAILED` | Server-side I/O or validation error during upload. | `uploadFile` |
+| `DOWNLOAD_FAILED` | Server-side I/O or integrity-check error during download. | `downloadFile` |
+| `SERVER_ERROR` | Unclassified internal server error (catch-all — never exposes stack traces or internal detail to the client). | Any method |
+
+**Transport-level failures** (`RemoteException` — registry unreachable, connection dropped mid-call) are distinct from the application error codes above and are handled client-side per FR-013 (§Architecture.md §2.1) — displayed as a "server unavailable" state rather than mapped to one of these codes.
+
+**Design note:** these names may be refined during implementation as long as (a) the set remains consistent across [flow.md](flow.md), [Testing.md](Testing.md), and this document, and (b) any rename is reflected in all three per [Development-rules.md](Development-rules.md) §4.

@@ -1,0 +1,12 @@
+// authlock-client — the Swing RMI client (UIUX.md, Architecture.md §2.1).
+// Depends on authlock-common for the shared remote interface and DTOs.
+
+apply plugin: 'application'
+
+application {
+    mainClass = 'com.authlock.client.ClientMain'
+}
+
+dependencies {
+    implementation project(':authlock-common')
+}
