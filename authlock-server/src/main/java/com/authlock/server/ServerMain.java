@@ -33,8 +33,8 @@ public final class ServerMain {
             System.out.println("  Registry port : " + RmiConfig.REGISTRY_PORT);
             System.out.println("  Service port  : " + RmiConfig.SERVICE_PORT);
             System.out.println("  Bound as      : " + RmiConfig.SERVICE_NAME);
-            System.out.println("Phase 2 (RMI Infrastructure) only — ping() is the sole method implemented so far.");
-            System.out.println("See Implementation.md Phase 3+ to continue.");
+            System.out.println("Implemented so far: ping() (Phase 2), login()/logout() (Phase 3).");
+            System.out.println("See Implementation.md Phase 4+ to continue.");
         } catch (Exception e) {
             System.err.println("Failed to start AuthLock server: " + e.getMessage());
             e.printStackTrace();

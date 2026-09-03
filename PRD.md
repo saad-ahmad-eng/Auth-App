@@ -102,7 +102,7 @@ Each requirement is assigned a traceable ID, reused in [Req-Doc-Alnafi.md](Req-D
 | **FR-014** | Credential Provisioning | `auth` does not describe a self-service registration screen. User accounts are assumed pre-provisioned (see NFR/Assumption below). | *Engineering Assumption — see §4.1.* |
 
 ### 4.1 On Registration
-`auth` never mentions a registration flow — only "log in with a username and password" (`auth` §3). Per the instruction in [p1.md](p1.md) §5 ("Do not invent registration if it is not required"), **AuthLock does not implement self-service registration**. User accounts are provisioned out-of-band (e.g., a fixed seed list, or an admin-only account-creation path — see **Open Question OQ-01** in [Context.md](Context.md)).
+`auth` never mentions a registration flow — only "log in with a username and password" (`auth` §3). Per the instruction in [p1.md](p1.md) §5 ("Do not invent registration if it is not required"), **AuthLock does not implement self-service registration**. **Resolved (Implementation Phase 3, closing OQ-01):** user accounts are provisioned via a fixed seed list (`seed-users.properties`, hashed at server startup — see Backend.md §2.1, Security.md §3), not an admin-UI account-creation path — the simplest option satisfying the coursework's fixed, small user base.
 
 ---
 

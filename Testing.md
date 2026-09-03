@@ -117,15 +117,15 @@ This is the project's headline distributed-systems demonstration and receives th
 
 | Test ID | Requirement | Scenario | Expected Result | Actual Result | Status |
 |---|---|---|---|---|---|
-| TEST-AUTH-001 | FR-001 | Valid login | Token issued | — | Not Run |
-| TEST-AUTH-002 | FR-001, SEC-001 | Invalid username | `AUTHENTICATION_FAILED` | — | Not Run |
-| TEST-AUTH-003 | FR-001, SEC-001 | Invalid password | `AUTHENTICATION_FAILED` | — | Not Run |
-| TEST-AUTH-004 | FR-001 | Empty credentials | `AUTHENTICATION_FAILED` | — | Not Run |
-| TEST-AUTH-005 | FR-001 | Repeated failures | No crash/leak | — | Not Run |
-| TEST-SESSION-001 | FR-004 | Valid token | Proceeds | — | Not Run |
-| TEST-SESSION-002 | FR-004 | Expired token | `INVALID_SESSION` | — | Not Run |
-| TEST-SESSION-003 | FR-004 | Invalid token | `INVALID_SESSION` | — | Not Run |
-| TEST-SESSION-004 | FR-002 | Reuse after logout | `INVALID_SESSION` | — | Not Run |
+| TEST-AUTH-001 | FR-001 | Valid login | Token issued | Token issued over real RMI call (`VaultServiceAuthIntegrationTest`) | **Pass** |
+| TEST-AUTH-002 | FR-001, SEC-001 | Invalid username | `AUTHENTICATION_FAILED` | Confirmed, and error identical to TEST-AUTH-003's (enumeration-prevention check) | **Pass** |
+| TEST-AUTH-003 | FR-001, SEC-001 | Invalid password | `AUTHENTICATION_FAILED` | Confirmed | **Pass** |
+| TEST-AUTH-004 | FR-001 | Empty credentials | `AUTHENTICATION_FAILED` | Confirmed | **Pass** |
+| TEST-AUTH-005 | FR-001 | Repeated failures | No crash/leak | 5 consecutive failures handled cleanly; correct login still succeeds afterward | **Pass** |
+| TEST-SESSION-001 | FR-004 | Valid token | Proceeds | Unit-tested (`SessionManagerTest`, deterministic clock) | **Pass** |
+| TEST-SESSION-002 | FR-004 | Expired token | `INVALID_SESSION` | Unit-tested with a mutable test `Clock` (idle timeout and absolute max lifetime both verified) | **Pass** |
+| TEST-SESSION-003 | FR-004 | Invalid token | `INVALID_SESSION` | Confirmed at both unit level and over real RMI (`logout` with a garbage token) | **Pass** |
+| TEST-SESSION-004 | FR-002 | Reuse after logout | `INVALID_SESSION` | Confirmed at both unit level and over real RMI | **Pass** |
 | TEST-FILE-001 | FR-006 | Upload valid file | Stored, listed | — | Not Run |
 | TEST-FILE-002 | FR-006 | Upload empty file | Documented behavior | — | Not Run |
 | TEST-FILE-003 | FR-006 | Upload large file | No corruption | — | Not Run |

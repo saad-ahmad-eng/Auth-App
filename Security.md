@@ -41,7 +41,7 @@
 - **Password verification:** The server hashes the submitted password with the stored user's salt/parameters and compares digests using a constant-time comparison (`MessageDigest.isEqual` or the library's built-in verifier) to avoid timing side-channels.
 - **Authentication failures:** A failed login (bad username OR bad password) returns the same generic `AUTHENTICATION_FAILED` error and the same approximate response time, so the server does not leak whether a given username exists (username enumeration prevention). Every failure is audited (§6).
 - **Session creation:** On success, the server creates a session record and returns an opaque token (see §4). No password material is echoed back.
-- **Session expiration:** Sessions expire after a configurable idle timeout (**Recommendation:** 30 minutes — **Open Question OQ-08**, final value TBD) and/or an absolute maximum lifetime.
+- **Session expiration:** **Resolved (Implementation Phase 3, `SessionManager`):** sessions expire after a 30-minute sliding idle timeout (renewed on every successful validation) **or** an 8-hour absolute maximum lifetime, whichever comes first — closing OQ-08.
 - **Logout:** Immediately and irrevocably invalidates the session token server-side.
 - **Token validation:** Every non-`login()` remote call validates the token against the live session table before performing any other work (fail closed).
 
@@ -180,7 +180,7 @@ Every event below is written as a structured (e.g., one JSON object per line), a
 The following are explicitly **not finalized** and must be resolved before implementation of the affected component (tracked centrally in [Context.md](Context.md)):
 
 - **OQ-05:** Final encryption key-management approach (pre-shared key vs. RMI-over-TLS vs. hybrid).
-- **OQ-08:** Session idle-timeout value.
+- ~~OQ-08~~ **Resolved (Phase 3):** 30-minute sliding idle timeout + 8-hour absolute max lifetime.
 - **OQ-09:** Whether locked files may still be downloaded read-only by non-owners.
 - **OQ-10:** Whether at-rest encryption is implemented in this coursework scope.
 - **OQ-12:** Whether locks are owned per-session or per-user.

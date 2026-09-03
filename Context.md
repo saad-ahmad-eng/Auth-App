@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phase 1 `Completed`; Phase 2 (RMI Infrastructure) `Completed`; Phase 3 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–3 `Completed`; Phase 4 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 2 — RMI Infrastructure — Completed.** Next up: **Phase 3 — Authentication & Session Management** (not started).
+**Implementation Phase 3 — Authentication & Session Management — Completed.** Next up: **Phase 4 — File Vault** (not started).
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -50,13 +50,16 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 1 — Project Skeleton (see §13 Implementation Log for full detail):** Gradle multi-module build (`authlock-common`/`authlock-server`/`authlock-client`) scaffolded, full package structure created, stub entry points added, Git repository initialized with an initial commit, build verified working (`./gradlew build`).
 
+**Plus, Implementation Phase 2 — RMI Infrastructure:** real `VaultService` interface with `ping()`, registry bootstrap, client-side lookup, verified over a genuine cross-process `localhost` round trip and an automated test (TEST-INT-001).
+
+**Plus, Implementation Phase 3 — Authentication & Session Management:** salted PBKDF2 password hashing, seeded user store (resolves OQ-01), `SessionManager` with SecureRandom tokens and sliding/absolute expiry (resolves OQ-08), `login()`/`logout()` wired into `VaultService` with a shared `VaultServiceException`/`ErrorCode` model, 23 passing tests (unit + real-RMI integration) covering TEST-AUTH-001..005 and TEST-SESSION-001..004.
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 and 2 are complete (§13 Implementation Log). Phases 3 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 3 are complete (§13 Implementation Log). Phases 4 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 3 — Authentication & Session Management
 - Phase 4 — File Vault
 - Phase 5 — Distributed Locking
 - Phase 6 — Encryption *(blocked on OQ-05, see §7)*
@@ -79,14 +82,14 @@ Client (Swing) ↔ RMI Registry + `VaultService` remote object ↔ [Authenticati
 
 | ID | Question | Default/Recommendation on file | Blocks |
 |---|---|---|---|
-| OQ-01 | How are user accounts actually provisioned, since there is no registration flow? | A fixed seed list or an admin-only provisioning path (PRD §4.1) | Phase 3 |
+| ~~OQ-01~~ | ~~How are user accounts provisioned?~~ | **Resolved (Phase 3):** fixed seed list (`seed-users.properties`), hashed at server startup — see PRD.md §4.1, Backend.md §2.1 | — |
 | OQ-02 | What is the numeric performance SLA (NFR-002)? | None fixed — treated qualitatively only | Low priority |
 | ~~OQ-03~~ | ~~Final JDK version and build tool~~ | **Resolved (Phase 1):** JDK 17, Gradle (Maven unavailable in target environment) — see TRD.md §4 | — |
 | OQ-04 | Should sessions/locks persist across server restarts? | No — in-memory only, acceptable loss on restart (ADR-006) | Phase 3, Phase 5 |
 | **OQ-05** | **Final encryption key-management approach** | RMI-over-TLS as primary + AES-GCM on payload as defense-in-depth (Security.md §7) | **Phase 6 — hard blocker** |
 | OQ-06 | Which free-tier cloud provider (AWS/Oracle/GCP)? | Not fixed — any satisfies `auth` §8 | Phase 11 |
 | OQ-07 | Final metadata storage mechanism (flat file vs. SQLite/H2) | Deferred to Backend.md/implementation judgment | Phase 4 |
-| OQ-08 | Session idle-timeout value | ~30 minutes suggested, not finalized | Phase 3 |
+| ~~OQ-08~~ | ~~Session idle-timeout value~~ | **Resolved (Phase 3):** 30-minute sliding idle timeout + 8-hour absolute max lifetime — see `SessionManager`, Security.md §5 | — |
 | OQ-09 | Can a locked file still be downloaded read-only by a non-owner? | Yes, by default (API-spec.md `downloadFile`) | Phase 4/5 |
 | OQ-10 | Is at-rest encryption implemented in this coursework scope? | No — in-transit only is the hard requirement | Phase 4/6 |
 | OQ-11 | Upload-with-same-name semantics — new file record vs. versioned update | Default: always a new file record unless an explicit locked "update" path exists | Phase 4 |
@@ -214,8 +217,34 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 
 ---
 
+### Phase 3 — Authentication & Session Management — `Completed`
+
+**Current Phase:** Implementation Phase 3
+**Current Status:** Completed
+**Completed:**
+- Resolved **OQ-01**: added `seed-users.properties` (demo accounts `alice`/`bob`) loaded and hashed by `UserStore` at server startup — no self-service registration exists, per PRD.md §4.1.
+- Implemented `PasswordHasher` (salted PBKDF2WithHmacSHA256, 120k iterations, constant-time verification) and `AuthenticationService` (timing-equalized for unknown usernames — SEC-001).
+- Resolved **OQ-08**: implemented `SessionManager` — SecureRandom 256-bit tokens, 30-minute sliding idle timeout, 8-hour absolute max lifetime, daemon-thread cleanup sweep.
+- Added a shared error model to `authlock-common`: `ErrorCode` enum + single `VaultServiceException` (per API-spec.md §3's design note), so the `VaultService` interface's throws clauses stay simple as methods are added phase by phase.
+- Extended `VaultService`/`VaultServiceImpl` with `login()`/`logout()`, plus a private `requireValidSession()` helper ready for Phase 4/5 methods to call (FR-004).
+- Extended `ClientMain`'s console demo to exercise login/logout against a seeded account (Phase 3 demo only — replaced by the Swing UI in Phase 8).
+- Updated documentation to close the two resolved Open Questions: PRD.md §4.1, Security.md §3/§11, Testing.md §5 (TEST-AUTH-001..005, TEST-SESSION-001..004 → Pass).
+**Files Created:** `ErrorCode.java`, `VaultServiceException.java` (common); `HashedPassword.java`, `User.java`, `PasswordHasher.java`, `UserStore.java`, `AuthenticationService.java`, `seed-users.properties`, `Session.java`, `SessionManager.java` (server); `PasswordHasherTest.java`, `AuthenticationServiceTest.java`, `SessionManagerTest.java`, `VaultServiceAuthIntegrationTest.java` (tests).
+**Files Modified:** `VaultService.java` (added `login`/`logout`), `VaultServiceImpl.java` (auth/session wiring), `ClientMain.java` (login/logout demo), `ServerMain.java` (startup banner text), `PRD.md`, `Security.md`, `Testing.md`.
+**Tests Added:** 15 new tests (3 `PasswordHasherTest` + 4 `AuthenticationServiceTest` + 6 `SessionManagerTest` + a growth from 1→9 `Vault*IntegrationTest` methods — see exact count below).
+**Tests Passed:** All 23 tests in `authlock-server` pass (`./gradlew clean build`): `PasswordHasherTest` (3), `AuthenticationServiceTest` (4), `SessionManagerTest` (6), `VaultServiceRmiIntegrationTest` (1), `VaultServiceAuthIntegrationTest` (9, including `TEST-AUTH-005`). Also manually verified with a real backgrounded server process and a separate client process: login returned a live session token, logout succeeded.
+**Tests Failed:** None (an earlier draft of `VaultServiceAuthIntegrationTest` used per-method `@BeforeEach`/`@AfterEach`, which fails on the 2nd+ test method because `LocateRegistry.createRegistry(port)` exports the registry itself as a long-lived object — `unbind()` doesn't release the port. Fixed by moving to class-level `@BeforeAll`/`@AfterAll`; documented in the test's Javadoc so the pitfall isn't rediscovered in Phase 4/5's tests.)
+**Known Issues:** None new.
+**Architecture Changes:** None — Phase 3 implements exactly the Authentication Service and Session Manager components already specified in Architecture.md §2.4/§2.5.
+**Security Changes:** OQ-05 (encryption) remains open and unaffected. No plaintext password is ever stored or logged; audit logging itself is still Phase 7 (not yet wired in) — login/logout currently have no audit trail, which is expected at this point in the roadmap, not a defect.
+**Open Decisions:** OQ-01 and OQ-08 resolved (see §7). All other Open Questions unchanged.
+**Next Steps:** Begin Phase 4 — File Vault (storage, metadata, `listFiles()`/`uploadFile()`/`downloadFile()`, filename sanitization per SEC-006, using `requireValidSession()` for authorization).
+**Blockers:** None for Phase 4.
+
+---
+
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 3 — Authentication & Session Management.** Before/while starting it, note two Open Questions with working defaults that Phase 3 will encode into real code: **OQ-01** (credential provisioning — no registration flow, so a seed user list or admin-only provisioning path is needed) and **OQ-08** (session idle-timeout value, default ~30 minutes). Neither blocks starting the phase, but both should be consciously confirmed rather than left as an unstated default once real code exists.
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 4 — File Vault.** This is the first phase touching the filesystem and needs one implementation-time decision Backend.md §2.10/ADR-010 deferred: **OQ-07** (metadata storage mechanism — flat file vs. embedded DB). Recommendation carried forward: a simple flat metadata store (e.g., one JSON/properties file per file record, or a single index file) is sufficient at coursework scale and avoids adding a new dependency; this can be implemented directly in Phase 4 without further discussion unless the developer prefers otherwise.
 
-No Open Question blocks Phase 3. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally.
+No Open Question blocks Phase 4. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally.
