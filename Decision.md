@@ -161,10 +161,10 @@ Each ADR records context, the problem, options considered, the selected option, 
 **Context:** Following ADR-003 (centralized server-side storage), a concrete on-disk layout is needed for file bytes and metadata.
 **Problem:** Decide the physical/logical storage layout for vault files, metadata, sessions, and locks.
 **Options considered:** Filesystem directory + lightweight metadata file/embedded store vs. full relational database (e.g., PostgreSQL/MySQL) vs. embedded database (e.g., H2/SQLite).
-**Selected option:** Server filesystem directory for file bytes (named by internal file ID, not client-supplied name — SEC-006), plus a lightweight metadata store (a simple serialized/structured file, or an embedded store such as SQLite/H2 if implementation complexity warrants it — final choice deferred to [Backend.md](Backend.md)/implementation phase).
+**Selected option:** Server filesystem directory for file bytes (named by internal file ID, not client-supplied name — SEC-006), plus a lightweight metadata store. **Resolved (Implementation Phase 4):** a flat `<fileId>.properties` sidecar file per stored file (key=value pairs: filename, owner, size, checksum, iv, timestamps), read back into an in-memory index at server startup — not an embedded database (SQLite/H2). This closes OQ-07: a per-file properties sidecar needed no new dependency, is trivially human-readable for the coursework report/demo, and was sufficient at the tested scale (verified: metadata and content both survive a service restart — `VaultFileServiceTest.metadataAndContentSurviveServiceRestart_resolvesOQ07`).
 **Reason:** `auth` never mentions a database; a full RDBMS would be overengineering per [p1.md](p1.md) §21. A lightweight approach is sufficient for coursework-scale data volumes.
 **Trade-offs:** Less robust than a real DB for concurrent metadata writes — mitigated by the same in-process synchronization used for locks (single JVM, shared in-memory structures backed by periodic/append-only persistence).
-**Consequences:** Concrete data models in [Backend.md](Backend.md); final storage mechanism choice tracked as **Open Question OQ-07**.
+**Consequences:** Concrete data models in [Backend.md](Backend.md); storage mechanism implemented in `authlock-server.vault.VaultFileService`.
 
 ---
 

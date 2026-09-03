@@ -2,10 +2,15 @@ package com.authlock.client;
 
 import com.authlock.client.rmi.RmiConnection;
 import com.authlock.client.rmi.ServerUnavailableException;
+import com.authlock.common.FileContent;
+import com.authlock.common.FileMetadata;
 import com.authlock.common.VaultService;
 import com.authlock.common.VaultServiceException;
 
+import java.nio.charset.StandardCharsets;
 import java.rmi.RemoteException;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Console entry point for the AuthLock client.
@@ -49,19 +54,39 @@ public final class ClientMain {
     }
 
     /**
-     * Phase 3 demo only: logs in as the seeded "alice" account, prints the
-     * session token, then logs out. Not part of the eventual Swing UI flow.
+     * Phase 3/4 demo only: logs in as the seeded "alice" account, uploads a
+     * small file, lists the vault, downloads the file back and verifies it
+     * round-tripped byte-identical, then logs out. Not part of the eventual
+     * Swing UI flow (Phase 8 replaces this with real event handlers).
      */
     private static void demoLoginLogout(VaultService service) throws RemoteException {
         try {
             String token = service.login("alice", "AliceP@ss1");
             System.out.println("Login succeeded. Session token: " + token);
 
+            demoFileRoundTrip(service, token);
+
             service.logout(token);
             System.out.println("Logout succeeded.");
         } catch (VaultServiceException e) {
-            System.out.println("Login/logout demo failed: " + e.getErrorCode() + " - " + e.getMessage());
+            System.out.println("Demo failed: " + e.getErrorCode() + " - " + e.getMessage());
         }
+    }
+
+    private static void demoFileRoundTrip(VaultService service, String token)
+            throws RemoteException, VaultServiceException {
+        byte[] content = "Hello from the AuthLock Phase 4 demo!".getBytes(StandardCharsets.UTF_8);
+
+        String fileId = service.uploadFile(token, "demo.txt", content, new byte[0]);
+        System.out.println("Uploaded demo.txt as fileId=" + fileId);
+
+        List<FileMetadata> files = service.listFiles(token);
+        System.out.println("Vault now contains " + files.size() + " file(s).");
+
+        FileContent downloaded = service.downloadFile(token, fileId);
+        boolean matches = Arrays.equals(content, downloaded.fileBytes());
+        System.out.println("Downloaded content matches upload: " + matches
+                + " (checksum=" + downloaded.checksum() + ")");
     }
 
     private static String resolveHost(String[] args) {

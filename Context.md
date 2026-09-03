@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–3 `Completed`; Phase 4 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–4 `Completed`; Phase 5 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 3 — Authentication & Session Management — Completed.** Next up: **Phase 4 — File Vault** (not started).
+**Implementation Phase 4 — File Vault — Completed.** Next up: **Phase 5 — Distributed Locking** (not started) — the project's headline feature.
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -54,13 +54,14 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 3 — Authentication & Session Management:** salted PBKDF2 password hashing, seeded user store (resolves OQ-01), `SessionManager` with SecureRandom tokens and sliding/absolute expiry (resolves OQ-08), `login()`/`logout()` wired into `VaultService` with a shared `VaultServiceException`/`ErrorCode` model, 23 passing tests (unit + real-RMI integration) covering TEST-AUTH-001..005 and TEST-SESSION-001..004.
 
+**Plus, Implementation Phase 4 — File Vault:** `VaultFileService` (flat `<fileId>.properties` sidecar + `<fileId>.bin` storage, resolves OQ-07; metadata rebuilt from disk at startup so the vault survives a restart), SHA-256 checksum computed at upload and re-verified at download, filename validation rejecting path-traversal attempts (SEC-006), `listFiles()`/`uploadFile()`/`downloadFile()` wired into `VaultService` (also resolves OQ-11: uploads always create a new `fileId`, never an in-place overwrite). 38 passing tests total; manually verified against a live cross-process server (upload → list → download, byte-identical, checksum confirmed, and files verified physically persisted on disk).
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 through 3 are complete (§13 Implementation Log). Phases 4 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 4 are complete (§13 Implementation Log). Phases 5 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 4 — File Vault
 - Phase 5 — Distributed Locking
 - Phase 6 — Encryption *(blocked on OQ-05, see §7)*
 - Phase 7 — Audit Logging
@@ -88,11 +89,11 @@ Client (Swing) ↔ RMI Registry + `VaultService` remote object ↔ [Authenticati
 | OQ-04 | Should sessions/locks persist across server restarts? | No — in-memory only, acceptable loss on restart (ADR-006) | Phase 3, Phase 5 |
 | **OQ-05** | **Final encryption key-management approach** | RMI-over-TLS as primary + AES-GCM on payload as defense-in-depth (Security.md §7) | **Phase 6 — hard blocker** |
 | OQ-06 | Which free-tier cloud provider (AWS/Oracle/GCP)? | Not fixed — any satisfies `auth` §8 | Phase 11 |
-| OQ-07 | Final metadata storage mechanism (flat file vs. SQLite/H2) | Deferred to Backend.md/implementation judgment | Phase 4 |
+| ~~OQ-07~~ | ~~Final metadata storage mechanism~~ | **Resolved (Phase 4):** flat `<fileId>.properties` sidecar per file, no embedded DB — see Decision.md ADR-010, `VaultFileService` | — |
 | ~~OQ-08~~ | ~~Session idle-timeout value~~ | **Resolved (Phase 3):** 30-minute sliding idle timeout + 8-hour absolute max lifetime — see `SessionManager`, Security.md §5 | — |
 | OQ-09 | Can a locked file still be downloaded read-only by a non-owner? | Yes, by default (API-spec.md `downloadFile`) | Phase 4/5 |
 | OQ-10 | Is at-rest encryption implemented in this coursework scope? | No — in-transit only is the hard requirement | Phase 4/6 |
-| OQ-11 | Upload-with-same-name semantics — new file record vs. versioned update | Default: always a new file record unless an explicit locked "update" path exists | Phase 4 |
+| ~~OQ-11~~ | ~~Upload-with-same-name semantics~~ | **Resolved (Phase 4):** every `uploadFile()` call always creates a brand-new `fileId`, even if the filename matches an existing file — there is no in-place "update" operation in the current API surface. Duplicate display names can coexist as distinct files. Revisit only if a "replace/version a file" feature is ever wanted (PRD.md Future Enhancements) | — |
 | OQ-12 | Are locks owned per-session or per-user (does a user's second concurrent session share their own lock)? | Per-session (Security.md §8) | Phase 5 |
 | OQ-13 | Final lock timeout duration | ~15 minutes suggested, not finalized | Phase 5 |
 | OQ-14 | Developer-name discrepancy between `auth` ("Saad Ahmad") and `p1.md` ("Kuamil jeffery") | p1.md's explicit instruction followed as authoritative for documentation; flagged here for the user to confirm before the coursework report is finalized | Phase 12 (report authorship) |
@@ -243,8 +244,34 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 
 ---
 
+### Phase 4 — File Vault — `Completed`
+
+**Current Phase:** Implementation Phase 4
+**Current Status:** Completed
+**Completed:**
+- Resolved **OQ-07**: `VaultFileService` stores each file as `<fileId>.bin` (raw content) + `<fileId>.properties` (flat key=value metadata sidecar) under a configurable vault directory (`-Dauthlock.vault.dir`, default `vault-storage/`, already `.gitignore`d since Phase 1). No database. Metadata index rebuilt from disk at startup — verified the vault survives a service restart.
+- Resolved **OQ-11**: every `uploadFile()` creates a brand-new `fileId`; there is no in-place update/overwrite path, so nothing can silently clobber another file.
+- Added `FileMetadata`/`FileContent` DTOs to `authlock-common`, matching API-spec.md §2 exactly (including the `iv`/lock-state fields that later phases will populate for real).
+- Added `FileRecord` (internal model) and `VaultFileService` (storage/retrieval, SHA-256 checksum at upload, re-verified at download — detects at-rest corruption/tampering) to `authlock-server.vault`.
+- Extended `VaultService`/`VaultServiceImpl` with `listFiles()`/`uploadFile()`/`downloadFile()`, each guarded by the existing `requireValidSession()` (Phase 3), with `lockState` hardcoded to `"UNLOCKED"` until Phase 5 provides a real Lock Manager.
+- Filename validation rejects blank names and path-separator/`..` sequences (SEC-006 defense in depth — storage never uses the filename as a path component in the first place, so this is belt-and-suspenders, not the only protection).
+- Extended `ClientMain`'s console demo to upload/list/download a file after login.
+**Files Created:** `FileMetadata.java`, `FileContent.java` (common); `FileRecord.java`, `VaultFileService.java` (server); `VaultFileServiceTest.java`, `VaultServiceFileIntegrationTest.java` (tests).
+**Files Modified:** `VaultService.java` (added 3 methods), `VaultServiceImpl.java` (vault wiring, constructor now `throws IOException` too), `ClientMain.java` (upload/list/download demo), `ServerMain.java` (banner text); `Decision.md` ADR-010, `Backend.md` §4, `Testing.md` §5, `Security.md` (File overwrite protection).
+**Tests Added:** 15 new (`VaultFileServiceTest` ×6, `VaultServiceFileIntegrationTest` ×9).
+**Tests Passed:** All 38 tests in `authlock-server` (`./gradlew clean build`), covering TEST-FILE-001..006 and TEST-SEC-001 at both storage-layer-unit and real-RMI levels. Manually verified against a live backgrounded server + separate client process: upload → list (1 file) → download (byte-identical, checksum printed) → logout; inspected the actual `.bin`/`.properties` files on disk afterward to confirm real persistence, not just in-memory state.
+**Tests Failed:** None.
+**Known Issues:** `./gradlew :authlock-server:run` uses the `authlock-server/` subproject directory as its working directory (Gradle default), so the default `vault-storage/` lands at `authlock-server/vault-storage/`, not the repo root — cosmetic only, already covered by `.gitignore`'s `vault-storage/` pattern regardless of location; not a defect, just worth knowing when looking for the demo files.
+**Architecture Changes:** None — implements exactly the Vault (File) Service component already specified in Architecture.md §2.6.
+**Security Changes:** SEC-006 (path traversal) now actively enforced and tested. File checksums now real (were undefined pre-Phase-4). Audit logging for upload/download is still Phase 7 (not yet wired in) — expected at this point, not a defect.
+**Open Decisions:** OQ-07 and OQ-11 resolved (see §7). OQ-09 (whether a locked file may still be downloaded read-only by a non-owner) remains genuinely open — it was moot in Phase 4 since no lock concept exists yet; it becomes a real decision point once Phase 5 adds the Lock Manager.
+**Next Steps:** Begin Phase 5 — Distributed Locking (the project's headline feature): `LockManager` with atomic acquire/release, wire `lockFile()`/`unlockFile()`, wire real lock state into `listFiles()`'s `FileMetadata.lockState()`, wire stale-lock release into the Phase 3 session-cleanup sweep, and the mandatory N-client concurrent-lock race test (TEST-CONC-001).
+**Blockers:** None for Phase 5. OQ-12 (per-session vs. per-user lock ownership) and OQ-13 (lock timeout value) have working defaults (per-session; ~15 minutes) that Phase 5 will encode into real code, same pattern as OQ-01/OQ-08 in Phase 3.
+
+---
+
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 4 — File Vault.** This is the first phase touching the filesystem and needs one implementation-time decision Backend.md §2.10/ADR-010 deferred: **OQ-07** (metadata storage mechanism — flat file vs. embedded DB). Recommendation carried forward: a simple flat metadata store (e.g., one JSON/properties file per file record, or a single index file) is sufficient at coursework scale and avoids adding a new dependency; this can be implemented directly in Phase 4 without further discussion unless the developer prefers otherwise.
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 5 — Distributed Locking.** This is the project's core innovation (`auth` §3) and carries the strongest test-coverage expectation in the whole roadmap ([Testing.md](Testing.md) §3, TEST-CONC-001: an N-client concurrent lock race that must show exactly one winner across 20–50 repeated runs). Two Open Questions have working defaults Phase 5 will encode into real code — **OQ-12** (lock ownership per-session, not per-user) and **OQ-13** (lock timeout, default ~15 minutes) — neither blocks starting.
 
-No Open Question blocks Phase 4. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally.
+No Open Question blocks Phase 5. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally. OQ-09 (locked-file read-only download) should be consciously decided during Phase 5, since that's the first point it becomes a real, reachable code path.

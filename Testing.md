@@ -126,12 +126,12 @@ This is the project's headline distributed-systems demonstration and receives th
 | TEST-SESSION-002 | FR-004 | Expired token | `INVALID_SESSION` | Unit-tested with a mutable test `Clock` (idle timeout and absolute max lifetime both verified) | **Pass** |
 | TEST-SESSION-003 | FR-004 | Invalid token | `INVALID_SESSION` | Confirmed at both unit level and over real RMI (`logout` with a garbage token) | **Pass** |
 | TEST-SESSION-004 | FR-002 | Reuse after logout | `INVALID_SESSION` | Confirmed at both unit level and over real RMI | **Pass** |
-| TEST-FILE-001 | FR-006 | Upload valid file | Stored, listed | — | Not Run |
-| TEST-FILE-002 | FR-006 | Upload empty file | Documented behavior | — | Not Run |
-| TEST-FILE-003 | FR-006 | Upload large file | No corruption | — | Not Run |
-| TEST-FILE-004 | FR-007 | Download valid file | Checksum match | — | Not Run |
-| TEST-FILE-005 | FR-007 | Download missing file | `FILE_NOT_FOUND` | — | Not Run |
-| TEST-FILE-006 | FR-007, SEC-007 | Unauthorized download | `INVALID_SESSION` | — | Not Run |
+| TEST-FILE-001 | FR-006 | Upload valid file | Stored, listed | Real RMI round trip: upload→list→download byte-identical; also manually verified against a live server, checksum confirmed | **Pass** |
+| TEST-FILE-002 | FR-006 | Upload empty file | Documented behavior | 0-byte upload accepted and downloads back as 0 bytes | **Pass** |
+| TEST-FILE-003 | FR-006 | Upload large file | No corruption | 5 MB random-content upload/download verified byte-identical | **Pass** |
+| TEST-FILE-004 | FR-007 | Download valid file | Checksum match | Server-returned checksum matches independently computed SHA-256 | **Pass** |
+| TEST-FILE-005 | FR-007 | Download missing file | `FILE_NOT_FOUND` | Confirmed | **Pass** |
+| TEST-FILE-006 | FR-007, SEC-007 | Unauthorized download | `INVALID_SESSION` | Confirmed (also `listFiles`/`uploadFile` with an invalid token) | **Pass** |
 | TEST-LOCK-001 | FR-008 | Acquire lock | Granted | — | Not Run |
 | TEST-LOCK-002 | FR-008 | Second user locks | `FILE_LOCKED` | — | Not Run |
 | TEST-LOCK-003 | FR-009 | Owner unlocks | Succeeds | — | Not Run |
@@ -142,7 +142,7 @@ This is the project's headline distributed-systems demonstration and receives th
 | **TEST-CONC-001** | **FR-010** | **N-way concurrent lock race** | **Exactly one winner, every run** | — | **Not Run** |
 | TEST-CONC-002 | NFR-006 | Concurrent uploads, different files | No contention | — | Not Run |
 | TEST-CONC-003 | NFR-006 | Concurrent listFiles during lock/unlock | Consistent, no crash | — | Not Run |
-| TEST-SEC-001 | SEC-006 | Path traversal filename | Neutralized | — | Not Run |
+| TEST-SEC-001 | SEC-006 | Path traversal filename | Neutralized | Rejected with `UPLOAD_FAILED` at both the storage-layer unit test and over real RMI (`../../etc/passwd`, `nested/dir/file.txt`) | **Pass** |
 | TEST-SEC-002 | SEC-003, SEC-007 | Unauthorized/garbage token | `INVALID_SESSION` | — | Not Run |
 | TEST-SEC-003 | SEC-004 | Tampered ciphertext | Rejected | — | Not Run |
 | TEST-SEC-004 | SEC-004 | Wire inspection | No plaintext content | — | Not Run |

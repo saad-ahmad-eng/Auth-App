@@ -90,5 +90,5 @@ These are **logical models** — the authoritative field list each entity must c
 
 ## 4. Notes
 
-- This document is intentionally implementation-agnostic on: exact metadata storage technology (flat file vs. SQLite/H2 — ADR-010, deferred), exact hashing/KDF library calls, and exact class names (left to [Development-rules.md](Development-rules.md) §2 naming conventions during implementation).
+- Metadata storage technology (ADR-010, OQ-07) is resolved as of Implementation Phase 4: a flat `<fileId>.properties` sidecar per file, implemented in `VaultFileService`. This document remains implementation-agnostic on exact hashing/KDF library calls and exact class names beyond what's already implemented (left to [Development-rules.md](Development-rules.md) §2 naming conventions).
 - Any change to these logical models that affects the wire format must be reflected in [API-spec.md](API-spec.md) DTOs in the same change.
