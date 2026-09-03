@@ -3,11 +3,13 @@ package com.authlock.server;
 import com.authlock.common.ErrorCode;
 import com.authlock.common.VaultService;
 import com.authlock.common.VaultServiceException;
+import com.authlock.common.crypto.SharedKeyProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import javax.crypto.SecretKey;
 import java.nio.file.Path;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
@@ -34,14 +36,19 @@ class VaultServiceLockIntegrationTest {
 
     private static final int TEST_REGISTRY_PORT = 21399;
     private static final String VAULT_DIR_PROPERTY = "authlock.vault.dir";
+    private static final String KEY_FILE_PROPERTY = "authlock.crypto.keyfile";
 
     private static Registry registry;
     private static VaultServiceImpl serviceImpl;
     private static VaultService client;
+    private static SecretKey sharedKey;
     private static String previousVaultDirProperty;
+    private static String previousKeyFileProperty;
 
     @TempDir
     static Path tempVaultDir;
+    @TempDir
+    static Path tempKeyDir;
 
     private String fileId;
     private String aliceToken;
@@ -51,10 +58,14 @@ class VaultServiceLockIntegrationTest {
     static void setUpServer() throws Exception {
         previousVaultDirProperty = System.getProperty(VAULT_DIR_PROPERTY);
         System.setProperty(VAULT_DIR_PROPERTY, tempVaultDir.toString());
+        previousKeyFileProperty = System.getProperty(KEY_FILE_PROPERTY);
+        Path keyFile = tempKeyDir.resolve("test-shared.key");
+        System.setProperty(KEY_FILE_PROPERTY, keyFile.toString());
 
         registry = LocateRegistry.createRegistry(TEST_REGISTRY_PORT);
         serviceImpl = new VaultServiceImpl(0);
         registry.rebind("VaultService", serviceImpl);
+        sharedKey = SharedKeyProvider.load(keyFile);
 
         Registry clientRegistryView = LocateRegistry.getRegistry("localhost", TEST_REGISTRY_PORT);
         client = (VaultService) clientRegistryView.lookup("VaultService");
@@ -70,10 +81,15 @@ class VaultServiceLockIntegrationTest {
         UnicastRemoteObject.unexportObject(serviceImpl, true);
         UnicastRemoteObject.unexportObject(registry, true);
 
-        if (previousVaultDirProperty == null) {
-            System.clearProperty(VAULT_DIR_PROPERTY);
+        restoreProperty(VAULT_DIR_PROPERTY, previousVaultDirProperty);
+        restoreProperty(KEY_FILE_PROPERTY, previousKeyFileProperty);
+    }
+
+    private static void restoreProperty(String name, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(name);
         } else {
-            System.setProperty(VAULT_DIR_PROPERTY, previousVaultDirProperty);
+            System.setProperty(name, previousValue);
         }
     }
 
@@ -86,7 +102,7 @@ class VaultServiceLockIntegrationTest {
     void freshFixture() throws Exception {
         aliceToken = client.login("alice", "AliceP@ss1");
         bobToken = client.login("bob", "BobP@ss1");
-        fileId = client.uploadFile(aliceToken, "shared.txt", "shared content".getBytes(), new byte[0]);
+        fileId = CryptoTestSupport.uploadPlaintext(client, sharedKey, aliceToken, "shared.txt", "shared content".getBytes());
     }
 
     @org.junit.jupiter.api.AfterEach

@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–5 `Completed`; Phase 6 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–6 `Completed`; Phase 7 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 5 — Distributed Locking — Completed.** The project's headline feature (`auth` §3) is implemented and its mandatory concurrency proof (TEST-CONC-001) is passing reliably. Next up: **Phase 6 — Encryption** (not started) — the one phase with a hard-blocking Open Question (OQ-05).
+**Implementation Phase 6 — Encryption — Completed.** Both AES-256-GCM file-payload encryption and RMI-over-TLS (whole-channel) are implemented, tested, and manually verified together. OQ-05 — the one Open Question flagged as a hard blocker in the entire roadmap — is now resolved. Next up: **Phase 7 — Audit Logging** (not started).
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -58,13 +58,14 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 5 — Distributed Locking:** `LockManager` (atomic per-file `ConcurrentHashMap.compute()` acquire/release, resolves OQ-12/OQ-13/OQ-09), `lockFile()`/`unlockFile()` wired into `VaultService` (contention reported via `FILE_LOCKED` exception, not a `LockResult` DTO — a Derived Decision finalized this phase), real lock state now populates `listFiles()`'s `FileMetadata` (with a "you"/"another user" hint, never a raw identity), and stale-lock recovery closed the loop via a new `SessionManager` session-ended listener feeding `LockManager.releaseAllOwnedBySession`. **The mandatory concurrency proof, TEST-CONC-001** (5 real concurrent sessions, real RMI, 30 rounds per run) **passed with exactly one winner every round, across 4 separate runs (120+ total race rounds, zero failures).** 61 passing tests total; manually verified against a live cross-process server, including watching bob's lock/unlock attempts get correctly rejected while alice held the lock.
 
+**Plus, Implementation Phase 6 — Encryption (resolves OQ-05, the roadmap's one hard blocker):** AES-256-GCM file-payload encryption (`AesGcmCipher`, `SharedKeyProvider` — a pre-shared key file, honestly documented as a coursework-scope simplification), applied per-hop, not end-to-end — client encrypts before upload, server decrypts on receipt/re-encrypts before download, storage stays plaintext, exactly matching the design recorded in Security.md §7 during the documentation phase. **Plus RMI-over-TLS** (`DevTlsSetup`, self-signed dev cert auto-generated via `keytool`), on by default, protecting the whole channel including `login()` credentials — closing a real gap the payload-only encryption would have left open. Hit and fixed one genuine, instructive bug along the way: RMI embeds the server's actual detected LAN IP in exported stubs by default, which broke TLS hostname verification against a `localhost`-scoped cert — fixed by defaulting `java.rmi.server.hostname=localhost`. Every existing upload/download call site across the whole test suite (~25 methods) was updated to encrypt/decrypt properly, since encryption is now mandatory, not optional. 76 passing tests total (15 new); manually verified with both encryption and TLS active simultaneously against a live cross-process server — including confirming the file on disk is genuinely plaintext (per the documented at-rest posture) while the wire bytes are genuinely ciphertext.
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 through 5 are complete (§13 Implementation Log). Phases 6 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 6 are complete (§13 Implementation Log). Phases 7 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 6 — Encryption *(blocked on OQ-05, see §7)*
 - Phase 7 — Audit Logging
 - Phase 8 — Swing UI
 - Phase 9 — Integration
@@ -88,18 +89,18 @@ Client (Swing) ↔ RMI Registry + `VaultService` remote object ↔ [Authenticati
 | OQ-02 | What is the numeric performance SLA (NFR-002)? | None fixed — treated qualitatively only | Low priority |
 | ~~OQ-03~~ | ~~Final JDK version and build tool~~ | **Resolved (Phase 1):** JDK 17, Gradle (Maven unavailable in target environment) — see TRD.md §4 | — |
 | ~~OQ-04~~ | ~~Should sessions/locks persist across server restarts?~~ | **Confirmed as implemented (Phases 3 & 5):** no — `SessionManager` and `LockManager` are both purely in-memory; a restart drops all sessions and locks (file *content*, unlike sessions/locks, does survive via `VaultFileService` — see OQ-07) | — |
-| **OQ-05** | **Final encryption key-management approach** | RMI-over-TLS as primary + AES-GCM on payload as defense-in-depth (Security.md §7) | **Phase 6 — hard blocker** |
+| ~~OQ-05~~ | ~~Final encryption key-management approach~~ | **Resolved (Phase 6):** both implemented — AES-256-GCM on file payloads (pre-shared key file, `SharedKeyProvider`) + RMI-over-TLS on the whole channel (self-signed dev cert, `DevTlsSetup`) — see Security.md §7 | — |
 | OQ-06 | Which free-tier cloud provider (AWS/Oracle/GCP)? | Not fixed — any satisfies `auth` §8 | Phase 11 |
 | ~~OQ-07~~ | ~~Final metadata storage mechanism~~ | **Resolved (Phase 4):** flat `<fileId>.properties` sidecar per file, no embedded DB — see Decision.md ADR-010, `VaultFileService` | — |
 | ~~OQ-08~~ | ~~Session idle-timeout value~~ | **Resolved (Phase 3):** 30-minute sliding idle timeout + 8-hour absolute max lifetime — see `SessionManager`, Security.md §5 | — |
 | ~~OQ-09~~ | ~~Can a locked file still be downloaded read-only by a non-owner?~~ | **Resolved (Phase 5):** yes — `downloadFile()` performs no lock check | — |
-| OQ-10 | Is at-rest encryption implemented in this coursework scope? | No — in-transit only is the hard requirement | Phase 4/6 |
+| OQ-10 | Is at-rest encryption implemented in this coursework scope? | No — in-transit protection (now: AES-GCM on payloads + RMI-over-TLS on the whole channel, both Phase 6) already exceeds `auth`'s literal requirement; storage remains plaintext | — (open, low priority; not required) |
 | ~~OQ-11~~ | ~~Upload-with-same-name semantics~~ | **Resolved (Phase 4):** every `uploadFile()` call always creates a brand-new `fileId`, even if the filename matches an existing file — there is no in-place "update" operation in the current API surface. Duplicate display names can coexist as distinct files. Revisit only if a "replace/version a file" feature is ever wanted (PRD.md Future Enhancements) | — |
 | ~~OQ-12~~ | ~~Are locks owned per-session or per-user?~~ | **Resolved (Phase 5):** per-session — see `FileLock`, Security.md §8 | — |
 | ~~OQ-13~~ | ~~Final lock timeout duration~~ | **Resolved (Phase 5):** fixed 15 minutes (`LockManager.LOCK_TIMEOUT`) | — |
 | OQ-14 | Developer-name discrepancy between `auth` ("Saad Ahmad") and `p1.md` ("Kuamil jeffery") | p1.md's explicit instruction followed as authoritative for documentation; flagged here for the user to confirm before the coursework report is finalized | Phase 12 (report authorship) |
 
-None of these block the *documentation* phase — each has a working default. OQ-05 is the only one that hard-blocks an *implementation* phase (Phase 6) if left unresolved.
+Only OQ-02 (SLA, low priority), OQ-06 (cloud provider, Phase 11), OQ-10 (at-rest encryption, low priority), and OQ-14 (developer-name discrepancy, Phase 12) remain open — each has a working default and none blocks further implementation. OQ-05, the one Open Question ever flagged as a hard blocker, was resolved in Phase 6.
 
 ---
 
@@ -122,7 +123,7 @@ See [PRD.md](PRD.md) (FR-001–FR-014, NFR-001–NFR-010) and [TRD.md](TRD.md) f
 
 ## 10. Security Summary
 
-See [Security.md](Security.md) for the complete threat model, SEC-001–SEC-010 controls, encryption design (status `Proposed`, pending OQ-05), lock security, and audit schema. Headline principle: **never trust the client** — every authentication, authorization, and lock-ownership decision is enforced server-side.
+See [Security.md](Security.md) for the complete threat model, SEC-001–SEC-010 controls, encryption design (AES-256-GCM + RMI-over-TLS, both implemented — ADR-007 `Accepted`), lock security, and audit schema. Headline principle: **never trust the client** — every authentication, authorization, and lock-ownership decision is enforced server-side.
 
 ---
 
@@ -295,10 +296,36 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 **Next Steps:** Begin Phase 6 — Encryption. **This phase cannot start without first resolving OQ-05** (final key-management approach: RMI-over-TLS vs. application-layer AES-GCM key distribution vs. hybrid) — see Security.md §7 for the options and the standing recommendation (RMI-over-TLS as primary transport control, AES-GCM on payload as defense-in-depth/LO4 demonstration).
 **Blockers:** **OQ-05 must be explicitly confirmed (or a different option chosen) before writing any Phase 6 code** — this is the one genuine go/no-go decision point in the entire roadmap.
 
+### Phase 6 — Encryption — `Completed`
+
+**Current Phase:** Implementation Phase 6
+**Current Status:** Completed
+**Completed:**
+- Resolved **OQ-05** (the roadmap's one hard-blocking Open Question) by implementing **both** options rather than choosing one: AES-256-GCM on file payloads (application-layer, per-hop) and RMI-over-TLS (whole channel). Confirmed the user's approval of this exact plan before starting.
+- **Part A — AES-256-GCM:** Added shared `AesGcmCipher` (encrypt/decrypt, fresh IV per operation, `TamperDetectedException` on a failed auth tag) and `SharedKeyProvider` (pre-shared key file; server generates on first run, client only reads) to `authlock-common.crypto`. Added `EncryptionService` (server-side decrypt-on-receipt / encrypt-on-send) to `authlock-server.crypto`. **Re-confirmed the exact design already recorded in Security.md §7 during the documentation phase** — encryption is per-hop, not end-to-end; storage stays plaintext. This meant `VaultFileService.store()` correctly dropped its (until-now-unused) `iv` parameter, and `FileRecord` correctly dropped its persisted `iv` field — a stored IV would have been meaningless for plaintext-at-rest storage and would have violated "never reuse an IV with the same key" if reused across downloads.
+- Wired `uploadFile()`/`downloadFile()` to decrypt/encrypt; broadened error handling so malformed (not just tampered) ciphertext also degrades to `UPLOAD_FAILED` rather than leaking a raw crypto exception through RMI.
+- **Encryption became mandatory**, not optional, matching `auth`'s literal requirement — meaning every existing upload/download call site across the whole test suite (`VaultServiceFileIntegrationTest`, `VaultServiceLockIntegrationTest`, `VaultServiceLockConcurrencyTest`, `VaultFileServiceTest` — roughly 25 methods) needed updating to properly encrypt/decrypt. Centralized the boilerplate in a new test-only `CryptoTestSupport` helper so each call site's change stayed a one-line swap.
+- Added real tamper-detection coverage: `TEST-SEC-003` (corrupted ciphertext → `UPLOAD_FAILED`, both at the cipher-unit level and over real RMI) and `TEST-SEC-004` (wire bytes provably ≠ plaintext, no substring recoverable, yet decrypting those exact bytes does recover the original) — both were previously untestable placeholders since no real crypto existed before this phase.
+- **Part B — RMI-over-TLS:** Added `DevTlsSetup` (`authlock-common.tls`) — auto-generates a self-signed dev certificate via the JDK-bundled `keytool` (no new dependency) on first run, sets the standard JSSE keystore/truststore system properties. Gave `VaultServiceImpl` a new `(port, tlsEnabled)` constructor using `SslRMIClientSocketFactory`/`SslRMIServerSocketFactory` — **deliberately kept the existing plain-RMI constructors unchanged**, so the entire pre-Phase-6 test suite (business-logic tests) needed zero changes to keep validating correctly without also re-verifying the transport layer on every run. `ServerMain`/`ClientMain` both default to TLS on (`-Dauthlock.tls.enabled=false` to disable).
+- **Hit and fixed a genuine, instructive bug:** RMI embeds the server's actual detected LAN IP (not `localhost`) in exported stubs by default, which broke TLS hostname verification against a cert scoped only to `localhost`/`127.0.0.1` (`CertificateException: No subject alternative names matching IP address 192.168.1.10 found`). Diagnosed by isolating the failure with a minimal raw-`SSLSocket` repro (which worked) to prove the cert/trust setup itself was fine, then comparing against the failing RMI path. Fixed by defaulting `java.rmi.server.hostname=localhost` unless already set — the exact property Architecture.md §3 already flagged as "a well-known RMI pitfall," now hit in a new context.
+- Also fixed a real (if minor) practical issue while wiring this up: `authlock-server`/`authlock-client`'s Gradle `run` tasks used their own subproject directories as working directory by default, so the shared key file and vault storage would land in two different places for the two processes. Fixed by pinning both `run` tasks' `workingDir` to the repo root — this also resolved a "Known Issue" noted (but left unfixed) back in Phase 1/4.
+- Added `VaultServiceTlsIntegrationTest`: a real TLS round trip (`ping`, `login`) succeeds, **and** a plain non-TLS client is genuinely rejected connecting to the TLS-only registry/export — proving TLS is enforced, not merely configured.
+**Files Created:** `AesGcmCipher.java`, `TamperDetectedException.java`, `SharedKeyProvider.java`, `DevTlsSetup.java` (common); `EncryptionService.java` (server); `AesGcmCipherTest.java`, `SharedKeyProviderTest.java` (common tests); `CryptoTestSupport.java`, `VaultServiceTlsIntegrationTest.java` (server tests).
+**Files Modified:** `VaultService.java` (login javadoc), `VaultServiceImpl.java` (encryption + TLS constructor), `VaultFileService.java`/`FileRecord.java` (dropped the unused `iv`), `ServerMain.java`, `ClientMain.java`, `RmiConnection.java` (TLS wiring + banners), `authlock-server/build.gradle`, `authlock-client/build.gradle` (`workingDir`), `.gitignore` (key file, `certs/`); every file/lock integration test touched by mandatory encryption; `Decision.md` ADR-007 (→ `Accepted`), `Security.md` §3/§7/§11, `Architecture.md` §2.8/§3, `TRD.md`, `Testing.md` §4/§5, `README.md` (full refresh, was stale since Phase 1).
+**Tests Added:** 15 new (`AesGcmCipherTest` ×6, `SharedKeyProviderTest` ×4, `VaultServiceTlsIntegrationTest` ×3, plus TEST-SEC-003/004 added to `VaultServiceFileIntegrationTest`).
+**Tests Passed:** All 76 tests (`./gradlew clean build`). TLS test class specifically re-run 4 times (once in the full suite, three standalone) with zero flakiness after the hostname fix. Manually verified against a live cross-process server with **both** AES-GCM and TLS active simultaneously: encrypted upload/list/download/lock demo succeeded; separately confirmed the file on disk is genuinely plaintext (`cat vault-storage/*.bin` showed the original text) while the wire payload was genuinely ciphertext (53 bytes for a 38-byte plaintext, GCM tag overhead).
+**Tests Failed:** None in the final state. One real failure diagnosed and fixed during development (the hostname/SAN mismatch above) — documented rather than silently worked around.
+**Known Issues:** None new. Phase 11 cloud deployment will need to regenerate the dev TLS certificate with the VM's public IP/hostname in its SAN — flagged in Architecture.md §3 and Security.md §7.2 as an explicit Phase 11 task.
+**Architecture Changes:** None beyond what Architecture.md §2.8 already specified (Encryption Service) — this phase implemented it, plus added the TLS bootstrap that §2.8 also anticipated ("and/or configure the RMI-over-TLS socket factories").
+**Security Changes:** SEC-004 (encryption in transit) now fully implemented and tested for both file payloads and the whole RMI channel. Credentials/session tokens are no longer sent in the clear (previously flagged as a known gap in Security.md §3/§7).
+**Open Decisions:** OQ-05 resolved (see §7) — the roadmap's only hard blocker. Only OQ-02 (SLA, low priority), OQ-06 (cloud provider, Phase 11), OQ-10 (at-rest encryption, low priority, arguably moot now), and OQ-14 (developer-name discrepancy, Phase 12) remain open — none block further implementation.
+**Next Steps:** Begin Phase 7 — Audit Logging: `AuditLogger` (structured, append-only, per Security.md §9's schema), call sites added at every method's success/failure exit point across Authentication, Session, Vault, and Lock modules (all currently have `// Audit logging ... is Phase 7's responsibility` comments marking exactly where).
+**Blockers:** None for Phase 7.
+
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **resolve OQ-05, then begin [Implementation.md](Implementation.md) Phase 6 — Encryption.** Unlike every Open Question resolved so far, this one is flagged as a hard blocker (Implementation.md Phase 6 prerequisites) because it is a real architectural fork, not a value that can be quietly defaulted: RMI-over-TLS protects the whole channel (including credentials) with modest certificate-management overhead, while pure application-layer AES-GCM needs a key-distribution story of its own. The standing recommendation (Security.md §7) is **both** — RMI-over-TLS as the primary transport control, AES-GCM on file payloads as an explicit, defense-in-depth demonstration of Java's cryptography APIs (module LO4) — but this should be confirmed with the developer rather than silently locked in, given it is the project's one remaining security-critical design fork.
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 7 — Audit Logging.** Every module (`login`/`logout`, `uploadFile`/`downloadFile`, `lockFile`/`unlockFile`) already has an explicit `// Audit logging (..., FR-011) is Phase 7's responsibility` comment marking exactly where the call sites go — this phase is mostly mechanical once `AuditLogger` itself exists, per Security.md §9's event schema (timestamp, eventType, userId/sessionId, operation, fileId, result, clientInfo) and the explicit prohibition on ever logging passwords, tokens, or keys.
 
-No other Open Question blocks Phase 6. OQ-06 (cloud provider) only matters at Phase 11.
+No Open Question blocks Phase 7.

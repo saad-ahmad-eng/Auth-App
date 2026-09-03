@@ -36,7 +36,7 @@
 
 ## 3. Authentication (SEC-001, SEC-002)
 
-- **Credential handling:** Username and password are submitted together in a single `login()` RMI call. They must never be logged (see §6, "Do not log passwords").
+- **Credential handling:** Username and password are submitted together in a single `login()` RMI call, protected in transit by RMI-over-TLS (§7.2, resolved Phase 6 — the whole channel, not just this call). They must never be logged (see §6, "Do not log passwords").
 - **Password storage (SEC-002):** `auth` does not specify a hashing scheme — this is an **Engineering Requirement**, not optional. Passwords **must never** be stored in plaintext. **Recommendation:** bcrypt or PBKDF2WithHmacSHA256 (available via Java's `javax.crypto` without external dependencies) with a per-user random salt and a work factor tuned to keep verification under ~250ms on the deployment VM.
 - **Password verification:** The server hashes the submitted password with the stored user's salt/parameters and compares digests using a constant-time comparison (`MessageDigest.isEqual` or the library's built-in verifier) to avoid timing side-channels.
 - **Authentication failures:** A failed login (bad username OR bad password) returns the same generic `AUTHENTICATION_FAILED` error and the same approximate response time, so the server does not leak whether a given username exists (username enumeration prevention). Every failure is audited (§6).
@@ -92,19 +92,33 @@ There is a single authenticated-user authorization tier in scope (no admin/guest
 
 ## 7. Encryption
 
-*(Status: see ADR-007, `Proposed` pending final key-management confirmation.)*
+**Resolved (Implementation Phase 6), closing OQ-05 — ADR-007 `Accepted`.** Two complementary controls, both implemented:
+
+### 7.1 Application-layer AES-256-GCM (file payloads)
 
 | Question | Answer |
 |---|---|
-| **What gets encrypted** | File payload bytes transferred between client and server (upload and download). Credentials are protected primarily via the authentication design (§3) and, if RMI-over-TLS is adopted, by the transport layer. |
-| **When** | At the point of transfer — files are encrypted by the sender immediately before transmission and decrypted by the receiver immediately after receipt; never held in plaintext on the wire. |
-| **Where** | Application-layer encryption performed in the client (before `uploadFile()`) and server (before returning bytes from `downloadFile()`), using Java's `javax.crypto` (JCE) APIs. |
-| **Algorithm** | AES-256-GCM (authenticated encryption — provides confidentiality **and** integrity in one primitive), per ADR-007. |
-| **Key management** | **Open Question OQ-05 (critical, must resolve before implementation):** options are (a) a pre-shared symmetric key distributed out-of-band to client and server config, acceptable for coursework scope but weak key-distribution story; (b) a per-session key derived during login via a key-exchange step; (c) rely on RMI-over-TLS for transport confidentiality instead of/in addition to application-layer AES, removing the need for application-level key distribution. **Recommendation:** adopt RMI-over-TLS (`SslRMIClientSocketFactory`/`SslRMIServerSocketFactory`) as the primary transport-confidentiality control (simplest, covers the whole channel including credentials), and treat application-layer AES-GCM on file payloads as a defense-in-depth / explicit demonstration of "Java cryptography APIs" for the module's LO4. Final decision must be recorded by updating ADR-007 to `Accepted` before implementation begins. |
-| **IV/nonce requirements** | If application-layer AES-GCM is used: a fresh, random 96-bit IV/nonce per encryption operation, never reused with the same key (GCM nonce reuse breaks confidentiality and integrity). IV is transmitted alongside ciphertext (it is not secret). |
-| **Authentication/integrity protection** | GCM's built-in authentication tag is verified on decryption; a failed tag verification is treated as a tampering event, the operation is rejected, and it is audited as an error. |
+| **What gets encrypted** | File payload bytes transferred between client and server (upload and download). |
+| **When** | At the point of transfer — the client encrypts before `uploadFile()`, the server decrypts on receipt; the server encrypts (fresh IV) before returning from `downloadFile()`, the client decrypts. Never held as plaintext on the wire. |
+| **Where** | Application-layer, per-hop (not end-to-end) — client-side in `authlock-client` (using shared `AesGcmCipher`), server-side in `authlock-server.crypto.EncryptionService`. Storage itself remains plaintext (`VaultFileService`) — this matches the "rely on VM-level disk access controls" at-rest posture below, not a change to it. |
+| **Algorithm** | AES-256-GCM via `javax.crypto` (`AesGcmCipher`, shared by both modules). |
+| **Key management** | A **pre-shared 256-bit AES key**: the server generates it on first startup if absent, persists it Base64-encoded to a local file (default `authlock-shared.key`, `-Dauthlock.crypto.keyfile=<path>`); the client only ever reads it (`SharedKeyProvider`). **Explicit coursework-scope simplification** — no rotation, no per-user keys, no KMS — chosen because it needs no in-band key exchange and is honestly inspectable rather than hiding the limitation behind a protocol. Its blast radius (if the key file is copied) is "file contents," not "everything," because §7.2 below separately protects credentials/session tokens. |
+| **IV/nonce requirements** | A fresh, random 96-bit IV per encryption operation (`AesGcmCipher.encrypt`), never reused with the same key — verified by test (`AesGcmCipherTest.everyEncryptionUsesAFreshIv`). Transmitted alongside ciphertext (not secret). |
+| **Authentication/integrity protection** | GCM's authentication tag is verified on decryption; a failed check throws `TamperDetectedException`, mapped to `UPLOAD_FAILED` — verified by test (TEST-SEC-003, both at the cipher-unit level and over real RMI with genuinely corrupted ciphertext). |
 
-**Explicitly prohibited:** any custom/home-rolled cipher or protocol (per [p1.md](p1.md) §8). Only standard JCE primitives are used.
+### 7.2 RMI-over-TLS (whole channel, including credentials)
+
+| Question | Answer |
+|---|---|
+| **What gets protected** | The entire RMI channel — registry lookups, `login()` credentials, session tokens, and (redundantly, defense-in-depth) file payloads already covered by §7.1. Closes the gap application-layer file encryption alone left open: `login(username, password)` previously traveled in the clear. |
+| **How** | `SslRMIClientSocketFactory`/`SslRMIServerSocketFactory` (JDK-bundled, `javax.rmi.ssl`) on both the registry and the exported `VaultService` object. On by default (`-Dauthlock.tls.enabled=false` to disable, e.g. for local troubleshooting). |
+| **Certificate** | A self-signed certificate, auto-generated via the JDK-bundled `keytool` (no new dependency) on first run if absent (`authlock-common.tls.DevTlsSetup`), scoped to `CN=localhost` with SAN `dns:localhost,ip:127.0.0.1`. The same PKCS12 file doubles as both keystore and truststore — a real deployment would separate these and use a CA-issued (or at least properly distributed) certificate. |
+| **Store password** | A fixed, publicly-documented dev-only value (`DevTlsSetup`'s Javadoc) — not a real secret; it protects nothing beyond a throwaway local test certificate. |
+| **A well-known pitfall this ran into** | RMI embeds the server machine's *actual detected LAN IP* in exported stubs by default (not `localhost`), which then fails TLS hostname verification against a cert scoped only to `localhost`/`127.0.0.1`. Fixed by defaulting `java.rmi.server.hostname=localhost` unless the launcher already sets it (`ServerMain`) — the same property Architecture.md §3 already documents needing an explicit value for cloud deployment. |
+| **Cloud deployment implication (Phase 11)** | The dev certificate's SAN is `localhost`-only; deploying to a cloud VM will need to regenerate it with the VM's public IP/hostname (or use a properly issued certificate) — tracked as a Phase 11 task, not solved here. |
+| **Proof it's real, not cosmetic** | `VaultServiceTlsIntegrationTest` includes a test asserting a *plain* (non-TLS) client cannot connect to the TLS-only registry/export — confirming enforcement, not just configuration. |
+
+**Explicitly prohibited throughout:** any custom/home-rolled cipher or protocol (per [p1.md](p1.md) §8). Only standard JCE/JSSE primitives are used.
 
 ---
 
@@ -179,9 +193,9 @@ Every event below is written as a structured (e.g., one JSON object per line), a
 
 The following are explicitly **not finalized** and must be resolved before implementation of the affected component (tracked centrally in [Context.md](Context.md)):
 
-- **OQ-05:** Final encryption key-management approach (pre-shared key vs. RMI-over-TLS vs. hybrid).
+- ~~OQ-05~~ **Resolved (Phase 6):** AES-256-GCM (pre-shared key file) on file payloads + RMI-over-TLS (self-signed dev cert) for the whole channel — both implemented, see §7.
 - ~~OQ-08~~ **Resolved (Phase 3):** 30-minute sliding idle timeout + 8-hour absolute max lifetime.
 - ~~OQ-09~~ **Resolved (Phase 5):** locked files remain downloadable read-only by non-owners.
-- **OQ-10:** Whether at-rest encryption is implemented in this coursework scope.
+- **OQ-10:** Whether at-rest encryption is implemented in this coursework scope — remains open; not required by `auth`, and RMI-over-TLS + AES-GCM in transit already exceed the literal requirement.
 - ~~OQ-12~~ **Resolved (Phase 5):** locks are owned per-session.
 - ~~OQ-13~~ **Resolved (Phase 5):** 15-minute fixed lock timeout.

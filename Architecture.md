@@ -109,12 +109,12 @@ This refines the `auth`-derived skeleton from [p1.md](p1.md) §10 by naming the 
 - **Security considerations:** Full detail in [Security.md](Security.md) §8; this is the component most directly tested by the mandatory concurrency test ([Testing.md](Testing.md)).
 
 ### 2.8 Encryption Service
-- **Purpose:** Provide the AES-GCM encrypt/decrypt operations (ADR-007), and/or configure the RMI-over-TLS socket factories.
-- **Responsibilities:** Encrypt file bytes before they leave the sender; decrypt on receipt; manage IV/nonce generation; verify authentication tags.
+- **Purpose:** Provide the AES-GCM encrypt/decrypt operations (ADR-007) and the RMI-over-TLS socket-factory configuration — **both implemented, Implementation Phase 6.**
+- **Responsibilities:** Server-side half (`authlock-server.crypto.EncryptionService`): decrypt an incoming upload's ciphertext before it reaches `VaultFileService`; encrypt (fresh IV) the plaintext read back for a download. Client-side half (thin, direct use of the shared `AesGcmCipher` in `ClientMain`): the mirror image. Both share `authlock-common.crypto.AesGcmCipher`/`SharedKeyProvider`. Separately, `authlock-common.tls.DevTlsSetup` configures RMI-over-TLS (self-signed dev cert, auto-generated via `keytool`) for the whole channel, used by both `ServerMain` and `ClientMain`.
 - **Inputs:** plaintext bytes + key (encrypt); ciphertext + IV + tag + key (decrypt).
-- **Outputs:** ciphertext + IV (encrypt); plaintext or a tamper-detected failure (decrypt).
-- **Dependencies:** `javax.crypto` (JCE); key material per the resolution of Open Question OQ-05.
-- **Security considerations:** Entire component is governed by [Security.md](Security.md) §7; no custom cryptography.
+- **Outputs:** ciphertext + IV (encrypt); plaintext or a `TamperDetectedException` (decrypt).
+- **Dependencies:** `javax.crypto` (JCE) for AES-GCM; `javax.rmi.ssl` (JSSE, JDK-bundled) for RMI-over-TLS; key material via `SharedKeyProvider` (pre-shared key file — resolution of OQ-05, Security.md §7).
+- **Security considerations:** Entire component is governed by [Security.md](Security.md) §7; no custom cryptography. RMI-over-TLS's dev certificate is `localhost`-scoped; see §3 Deployment Architecture for the Phase 11 cloud-deployment implication.
 
 ### 2.9 Audit Logger
 - **Purpose:** Durable, structured recording of every security-relevant event.
@@ -175,6 +175,7 @@ Per `auth` §8 and ADR-009:
 | **Firewall/security group** | Inbound rules opened only for the registry port and the fixed object port, from the client's expected source (or `0.0.0.0/0` for coursework demo convenience, documented as a conscious, reviewed trade-off). |
 | **Client-to-cloud communication** | The Swing client connects using the VM's public IP and the registry port, identical code path to the localhost case — proving genuine distributed operation per `auth` §8. |
 | **Process management** | Server started via `nohup java -jar authlock-server.jar &` or a systemd unit, so it survives SSH session termination and individual client disconnects. |
+| **TLS certificate (Phase 6 addition)** | The auto-generated dev certificate (`DevTlsSetup`) is scoped to `CN=localhost`, SAN `dns:localhost,ip:127.0.0.1` — valid for local development, **not** for the cloud VM's public IP. Before Phase 11 client connections will succeed over TLS, the certificate must be regenerated with the VM's public IP/hostname in its SAN (delete the old `certs/authlock-dev.p12` on the VM and let `DevTlsSetup` regenerate it with an updated SAN, or supply a properly issued certificate) — tracked as an explicit Phase 11 task, not yet done. |
 
 ---
 

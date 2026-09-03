@@ -35,9 +35,10 @@ public interface VaultService extends Remote {
      * {@code login}, FR-001/FR-003, Security.md §3).
      *
      * @param username the account's username
-     * @param password the account's password, in plaintext over this call
-     *                  (see Security.md §7 — transport confidentiality is
-     *                  Phase 6's responsibility; not yet applied)
+     * @param password the account's password — this parameter itself is a
+     *                  plain {@code String} at the API level, but the whole
+     *                  RMI channel is protected by RMI-over-TLS by default
+     *                  since Implementation Phase 6 (Security.md §7.2)
      * @return an opaque session token
      * @throws VaultServiceException with {@link ErrorCode#AUTHENTICATION_FAILED}
      *                                on invalid credentials — the same error

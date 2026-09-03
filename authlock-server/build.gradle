@@ -9,6 +9,14 @@ application {
     mainClass = 'com.authlock.server.ServerMain'
 }
 
+// Run from the repo root, not this subproject's directory (Gradle's default),
+// so relative paths (vault-storage/, authlock-shared.key) land in one place
+// shared with authlock-client's run task — both must agree on the same
+// files for the demo to work. See Context.md Phase 4's "Known Issues".
+tasks.named('run') {
+    workingDir = rootProject.projectDir
+}
+
 dependencies {
     implementation project(':authlock-common')
 }

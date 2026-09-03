@@ -15,7 +15,7 @@
 | Language/runtime | Java (JDK — version TBD, see §2.1) | Explicit (`auth` §2) |
 | Distributed communication | Java RMI (over TCP) | Explicit (`auth` §2, §4) |
 | GUI | Java Swing | Explicit (`auth` §2, §21) |
-| Cryptography | `javax.crypto` (JCA/JCE) | Explicit (`auth` §3 "encryption"), primitive choice in [Security.md](Security.md) |
+| Cryptography | `javax.crypto` (JCA/JCE) for AES-GCM; `javax.rmi.ssl`/JSSE for RMI-over-TLS; `keytool` (JDK-bundled CLI, not a library dependency) to auto-generate the dev TLS certificate | Explicit (`auth` §3 "encryption"), implemented Phase 6 — [Security.md](Security.md) §7 |
 | File storage | Server local filesystem | Derived Decision — see ADR-003/ADR-010 |
 | Metadata persistence | Flat file / simple embedded store (not a full RDBMS) | Derived Decision — see ADR-010 |
 | Build system | Maven or Gradle | Recommendation — see §5 |

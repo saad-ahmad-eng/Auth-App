@@ -3,6 +3,7 @@ package com.authlock.client.rmi;
 import com.authlock.common.RmiConfig;
 import com.authlock.common.VaultService;
 
+import javax.rmi.ssl.SslRMIClientSocketFactory;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
@@ -14,23 +15,28 @@ import java.rmi.registry.Registry;
  * {@link ServerUnavailableException} (FR-013) rather than letting a raw
  * {@link RemoteException} or {@link NotBoundException} reach UI code.
  *
- * <p>Implementation Phase 2 (RMI Infrastructure) scope: registry lookup
- * only. Session-token handling (attaching it to every call after
- * {@code login()}) is added in Phase 3.
+ * <p>Implementation Phase 2 scope: registry lookup. Session-token handling
+ * is Phase 3's concern. <b>Phase 6 addition:</b> the lookup can use
+ * {@link SslRMIClientSocketFactory} to match a TLS-enabled server —
+ * {@link com.authlock.common.tls.DevTlsSetup#configure()} must have already
+ * been called by the caller so the JSSE truststore property is set.
  */
 public final class RmiConnection {
 
     private RmiConnection() {
     }
 
-    /** Connects to a VaultService on the default registry port on the given host. */
+    /** Connects (TLS-enabled by default — matches {@code ServerMain}'s default) to the default registry port. */
     public static VaultService connect(String host) {
-        return connect(host, RmiConfig.REGISTRY_PORT);
+        return connect(host, RmiConfig.REGISTRY_PORT,
+                Boolean.parseBoolean(System.getProperty("authlock.tls.enabled", "true")));
     }
 
-    public static VaultService connect(String host, int registryPort) {
+    public static VaultService connect(String host, int registryPort, boolean tlsEnabled) {
         try {
-            Registry registry = LocateRegistry.getRegistry(host, registryPort);
+            Registry registry = tlsEnabled
+                    ? LocateRegistry.getRegistry(host, registryPort, new SslRMIClientSocketFactory())
+                    : LocateRegistry.getRegistry(host, registryPort);
             return (VaultService) registry.lookup(RmiConfig.SERVICE_NAME);
         } catch (RemoteException | NotBoundException e) {
             throw new ServerUnavailableException(

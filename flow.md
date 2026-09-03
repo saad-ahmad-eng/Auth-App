@@ -96,6 +96,8 @@ sequenceDiagram
 
 ## 6. File Upload
 
+*(Corrected in Implementation Phase 6 to match Security.md §7's per-hop, not end-to-end, design: the server decrypts on receipt and stores plaintext — it does not store ciphertext directly.)*
+
 ```mermaid
 sequenceDiagram
     participant C as Client
@@ -105,19 +107,22 @@ sequenceDiagram
     participant F as Vault Service
     participant L as Audit Logger
 
-    C->>E: encrypt(fileBytes)
-    E-->>C: ciphertext + IV
+    C->>C: encrypt(fileBytes) [client-side AesGcmCipher]
     C->>V: uploadFile(sessionToken, filename, ciphertext, IV)
     V->>S: validate(sessionToken)
     S-->>V: userId (valid)
-    V->>F: store(fileId=new, filename, ciphertext, IV, owner=userId)
-    F->>F: compute checksum, persist bytes + metadata
+    V->>E: decrypt(ciphertext, IV)
+    E-->>V: plaintext
+    V->>F: store(fileId=new, filename, plaintext, owner=userId)
+    F->>F: compute checksum (over plaintext), persist bytes + metadata
     F-->>V: fileId
     V->>L: log(UPLOAD, SUCCESS, fileId)
     V-->>C: fileId
 ```
 
 ## 7. File Download
+
+*(Corrected in Implementation Phase 6 — see note above §6: the server reads plaintext from storage and encrypts it fresh, with a new IV, for this specific transfer.)*
 
 ```mermaid
 sequenceDiagram
@@ -133,11 +138,12 @@ sequenceDiagram
     S-->>V: userId (valid)
     V->>F: retrieve(fileId)
     alt file exists
-        F-->>V: ciphertext + IV
+        F-->>V: plaintext + checksum
+        V->>E: encrypt(plaintext) [fresh IV]
+        E-->>V: ciphertext + IV
         V->>L: log(DOWNLOAD, SUCCESS, fileId)
-        V-->>C: ciphertext + IV
-        C->>E: decrypt(ciphertext, IV)
-        E-->>C: plaintext bytes
+        V-->>C: ciphertext + IV + checksum
+        C->>C: decrypt(ciphertext, IV) [client-side AesGcmCipher]
     else file not found
         F-->>V: not found
         V->>L: log(DOWNLOAD, FAILURE, fileId)

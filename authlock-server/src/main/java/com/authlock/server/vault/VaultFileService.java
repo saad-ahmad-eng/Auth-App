@@ -10,7 +10,6 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +36,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * addressed by its server-generated {@code fileId} (SEC-006, path traversal
  * prevention "by construction," not merely by filtering). Client-supplied
  * filenames are still validated defensively (see {@link #validateFilename}).
+ *
+ * <p><b>Phase 6 note:</b> storage always holds plaintext. AES-GCM encryption
+ * (Security.md §7) is transport-only — the server decrypts an incoming
+ * upload before calling {@link #store} and encrypts (with a fresh IV) after
+ * calling {@link #retrieve} for a download; see {@code VaultServiceImpl}.
+ * There is deliberately no persisted {@code iv} field here — a stored IV
+ * would be meaningless for plaintext-at-rest storage, and reusing an
+ * upload's IV for a later download would violate AES-GCM's "never reuse an
+ * IV with the same key" rule (Security.md §7).
  */
 public final class VaultFileService {
 
@@ -59,15 +67,13 @@ public final class VaultFileService {
      * @throws IllegalArgumentException if {@code filename} fails validation (SEC-006)
      * @throws IOException              on a storage/write failure
      */
-    public FileRecord store(String filename, byte[] content, byte[] iv, String owner) throws IOException {
+    public FileRecord store(String filename, byte[] content, String owner) throws IOException {
         validateFilename(filename);
         String fileId = UUID.randomUUID().toString();
         String checksum = sha256Hex(content);
         Instant now = Instant.now();
 
-        FileRecord record = new FileRecord(
-                fileId, filename, owner, content.length, checksum,
-                iv == null ? new byte[0] : iv, now, now);
+        FileRecord record = new FileRecord(fileId, filename, owner, content.length, checksum, now, now);
 
         writeContentAtomically(fileId, content);
         writeMetadataAtomically(record);
@@ -160,7 +166,6 @@ public final class VaultFileService {
         props.setProperty("owner", record.owner());
         props.setProperty("size", Long.toString(record.size()));
         props.setProperty("checksum", record.checksum());
-        props.setProperty("iv", Base64.getEncoder().encodeToString(record.iv()));
         props.setProperty("createdAt", Long.toString(record.createdAt().toEpochMilli()));
         props.setProperty("modifiedAt", Long.toString(record.modifiedAt().toEpochMilli()));
 
@@ -188,14 +193,12 @@ public final class VaultFileService {
         try (InputStream in = Files.newInputStream(path)) {
             props.load(in);
         }
-        byte[] iv = Base64.getDecoder().decode(props.getProperty("iv", ""));
         return new FileRecord(
                 fileId,
                 props.getProperty("filename"),
                 props.getProperty("owner"),
                 Long.parseLong(props.getProperty("size")),
                 props.getProperty("checksum"),
-                iv,
                 Instant.ofEpochMilli(Long.parseLong(props.getProperty("createdAt"))),
                 Instant.ofEpochMilli(Long.parseLong(props.getProperty("modifiedAt"))));
     }

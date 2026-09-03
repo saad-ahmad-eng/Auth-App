@@ -7,6 +7,12 @@ application {
     mainClass = 'com.authlock.client.ClientMain'
 }
 
+// See authlock-server/build.gradle — must agree on the same working
+// directory so both processes see the same authlock-shared.key.
+tasks.named('run') {
+    workingDir = rootProject.projectDir
+}
+
 dependencies {
     implementation project(':authlock-common')
 }

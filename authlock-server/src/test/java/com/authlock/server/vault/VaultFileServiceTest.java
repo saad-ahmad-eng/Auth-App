@@ -25,7 +25,7 @@ class VaultFileServiceTest {
         VaultFileService service = new VaultFileService(tempDir);
         byte[] content = "hello, vault".getBytes();
 
-        FileRecord stored = service.store("notes.txt", content, new byte[0], "user-1");
+        FileRecord stored = service.store("notes.txt", content, "user-1");
         Optional<VaultFileService.StoredFile> retrieved = service.retrieve(stored.fileId());
 
         assertTrue(retrieved.isPresent());
@@ -45,9 +45,9 @@ class VaultFileServiceTest {
         VaultFileService service = new VaultFileService(tempDir);
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.store("../../etc/passwd", "malicious".getBytes(), new byte[0], "user-1"));
+                () -> service.store("../../etc/passwd", "malicious".getBytes(), "user-1"));
         assertThrows(IllegalArgumentException.class,
-                () -> service.store("nested/dir/file.txt", "x".getBytes(), new byte[0], "user-1"));
+                () -> service.store("nested/dir/file.txt", "x".getBytes(), "user-1"));
     }
 
     @Test
@@ -55,14 +55,14 @@ class VaultFileServiceTest {
         VaultFileService service = new VaultFileService(tempDir);
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.store("   ", "x".getBytes(), new byte[0], "user-1"));
+                () -> service.store("   ", "x".getBytes(), "user-1"));
     }
 
     @Test
     void metadataAndContentSurviveServiceRestart_resolvesOQ07(@TempDir Path tempDir) throws IOException {
         VaultFileService first = new VaultFileService(tempDir);
         byte[] content = "persisted content".getBytes();
-        FileRecord stored = first.store("persist-me.txt", content, new byte[0], "user-1");
+        FileRecord stored = first.store("persist-me.txt", content, "user-1");
 
         // Simulate a server restart: a fresh VaultFileService over the same directory.
         VaultFileService afterRestart = new VaultFileService(tempDir);
@@ -77,8 +77,8 @@ class VaultFileServiceTest {
     @Test
     void listAllReflectsAllStoredFiles(@TempDir Path tempDir) throws IOException {
         VaultFileService service = new VaultFileService(tempDir);
-        service.store("a.txt", "a".getBytes(), new byte[0], "user-1");
-        service.store("b.txt", "b".getBytes(), new byte[0], "user-2");
+        service.store("a.txt", "a".getBytes(), "user-1");
+        service.store("b.txt", "b".getBytes(), "user-2");
 
         assertEquals(2, service.listAll().size());
     }

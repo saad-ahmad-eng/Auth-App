@@ -4,11 +4,13 @@ import com.authlock.common.ErrorCode;
 import com.authlock.common.FileMetadata;
 import com.authlock.common.VaultService;
 import com.authlock.common.VaultServiceException;
+import com.authlock.common.crypto.SharedKeyProvider;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import javax.crypto.SecretKey;
 import java.nio.file.Path;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
@@ -52,25 +54,34 @@ class VaultServiceLockConcurrencyTest {
 
     private static final int TEST_REGISTRY_PORT = 21499;
     private static final String VAULT_DIR_PROPERTY = "authlock.vault.dir";
+    private static final String KEY_FILE_PROPERTY = "authlock.crypto.keyfile";
     private static final int CONCURRENT_CLIENTS = 5;
     private static final int ROUNDS = 30;
 
     private static Registry registry;
     private static VaultServiceImpl serviceImpl;
     private static VaultService client;
+    private static SecretKey sharedKey;
     private static String previousVaultDirProperty;
+    private static String previousKeyFileProperty;
 
     @TempDir
     static Path tempVaultDir;
+    @TempDir
+    static Path tempKeyDir;
 
     @BeforeAll
     static void setUp() throws Exception {
         previousVaultDirProperty = System.getProperty(VAULT_DIR_PROPERTY);
         System.setProperty(VAULT_DIR_PROPERTY, tempVaultDir.toString());
+        previousKeyFileProperty = System.getProperty(KEY_FILE_PROPERTY);
+        Path keyFile = tempKeyDir.resolve("test-shared.key");
+        System.setProperty(KEY_FILE_PROPERTY, keyFile.toString());
 
         registry = LocateRegistry.createRegistry(TEST_REGISTRY_PORT);
         serviceImpl = new VaultServiceImpl(0);
         registry.rebind("VaultService", serviceImpl);
+        sharedKey = SharedKeyProvider.load(keyFile);
 
         Registry clientRegistryView = LocateRegistry.getRegistry("localhost", TEST_REGISTRY_PORT);
         client = (VaultService) clientRegistryView.lookup("VaultService");
@@ -86,10 +97,19 @@ class VaultServiceLockConcurrencyTest {
         UnicastRemoteObject.unexportObject(serviceImpl, true);
         UnicastRemoteObject.unexportObject(registry, true);
 
+        restoreProperty(KEY_FILE_PROPERTY, previousKeyFileProperty);
         if (previousVaultDirProperty == null) {
             System.clearProperty(VAULT_DIR_PROPERTY);
         } else {
             System.setProperty(VAULT_DIR_PROPERTY, previousVaultDirProperty);
+        }
+    }
+
+    private static void restoreProperty(String name, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, previousValue);
         }
     }
 
@@ -102,7 +122,7 @@ class VaultServiceLockConcurrencyTest {
         for (int i = 0; i < CONCURRENT_CLIENTS; i++) {
             sessionTokens.add(i % 2 == 0 ? client.login("alice", "AliceP@ss1") : client.login("bob", "BobP@ss1"));
         }
-        String fileId = client.uploadFile(sessionTokens.get(0), "race-target.txt", "contested".getBytes(), new byte[0]);
+        String fileId = CryptoTestSupport.uploadPlaintext(client, sharedKey, sessionTokens.get(0), "race-target.txt", "contested".getBytes());
 
         ExecutorService pool = Executors.newFixedThreadPool(CONCURRENT_CLIENTS);
         try {
@@ -193,8 +213,8 @@ class VaultServiceLockConcurrencyTest {
                     int index = i;
                     uploads.add(() -> {
                         startingLine.await(10, TimeUnit.SECONDS);
-                        return client.uploadFile(token, "conc2-file-" + index + ".txt",
-                                ("content " + index).getBytes(), new byte[0]);
+                        return CryptoTestSupport.uploadPlaintext(client, sharedKey, token,
+                                "conc2-file-" + index + ".txt", ("content " + index).getBytes());
                     });
                 }
 
@@ -224,7 +244,7 @@ class VaultServiceLockConcurrencyTest {
         String lockerToken = client.login("alice", "AliceP@ss1");
         String readerToken = client.login("bob", "BobP@ss1");
         try {
-            String fileId = client.uploadFile(lockerToken, "conc3-target.txt", "x".getBytes(), new byte[0]);
+            String fileId = CryptoTestSupport.uploadPlaintext(client, sharedKey, lockerToken, "conc3-target.txt", "x".getBytes());
 
             AtomicBoolean keepCycling = new AtomicBoolean(true);
             Set<Exception> lockCycleErrors = new CopyOnWriteArraySet<>();

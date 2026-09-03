@@ -104,6 +104,8 @@ This is the project's headline distributed-systems demonstration and receives th
 |---|---|---|---|
 | TEST-INT-001 | Integration/RMI | Client looks up and invokes `VaultService` over `localhost` | Round trip succeeds. |
 | TEST-INT-002 | RMI communication | Server stopped mid-session, client attempts a call | Client surfaces a clear "server unavailable" state (FR-013), not a crash. |
+| TEST-TLS-001 | Security/RMI | Client completes a real round trip (`ping`, `login`) over RMI-over-TLS | Succeeds — `VaultServiceTlsIntegrationTest`. **Pass.** |
+| TEST-TLS-002 | Security/RMI | Plain (non-TLS) client attempts to connect to the TLS-only registry/export | Rejected — proves TLS is enforced, not merely configured. `VaultServiceTlsIntegrationTest`. **Pass.** |
 | TEST-UI-001 | UI | Login with invalid credentials | Error message shown; login button re-enabled; no crash. |
 | TEST-UI-002 | UI | File list refresh while a file is locked by another user | Lock state visibly indicated (per [UIUX.md](UIUX.md)). |
 | TEST-UI-003 | UI | Upload button disabled state | Disabled while no file is selected / while an upload is in progress. |
@@ -143,12 +145,14 @@ This is the project's headline distributed-systems demonstration and receives th
 | TEST-CONC-002 | NFR-006 | Concurrent uploads, different files | No contention | 8 concurrent uploaders, real RMI, all succeed with 8 distinct fileIds | **Pass** |
 | TEST-CONC-003 | NFR-006 | Concurrent listFiles during lock/unlock | Consistent, no crash | 200 concurrent `listFiles()` reads against a continuous background lock/unlock cycle — no errors, always consistent | **Pass** |
 | TEST-SEC-001 | SEC-006 | Path traversal filename | Neutralized | Rejected with `UPLOAD_FAILED` at both the storage-layer unit test and over real RMI (`../../etc/passwd`, `nested/dir/file.txt`) | **Pass** |
-| TEST-SEC-002 | SEC-003, SEC-007 | Unauthorized/garbage token | `INVALID_SESSION` | — | Not Run |
-| TEST-SEC-003 | SEC-004 | Tampered ciphertext | Rejected | — | Not Run |
-| TEST-SEC-004 | SEC-004 | Wire inspection | No plaintext content | — | Not Run |
-| TEST-SEC-005 | SEC-008 | Log inspection | No secrets present | — | Not Run |
+| TEST-SEC-002 | SEC-003, SEC-007 | Unauthorized/garbage token | `INVALID_SESSION` | Covered across every method's dedicated invalid-session test (auth, file, lock suites) — consistently `INVALID_SESSION`, no side effects | **Pass** |
+| TEST-SEC-003 | SEC-004 | Tampered ciphertext | Rejected | Confirmed at the cipher-unit level (`AesGcmCipherTest`) and over real RMI with genuinely corrupted ciphertext (`VaultServiceFileIntegrationTest.testSec003_...`) — `UPLOAD_FAILED`, not silently accepted | **Pass** |
+| TEST-SEC-004 | SEC-004 | Wire inspection | No plaintext content | `VaultServiceFileIntegrationTest.testSec004_...` inspects the actual `FileContent` DTO returned over RMI: bytes ≠ plaintext, no substring of the plaintext recoverable; decrypting those exact bytes does recover the original | **Pass** |
+| TEST-SEC-005 | SEC-008 | Log inspection | No secrets present | Depends on the audit log existing — Phase 7 | Not Run |
 | TEST-INT-001 | ADR-001 | Basic RMI round trip | Succeeds | Automated (`VaultServiceRmiIntegrationTest`) and manual cross-process `localhost` run both succeeded — client received `ping()` response | **Pass** |
 | TEST-INT-002 | FR-013 | Server down mid-session | Clear client-side error | — | Not Run |
+| TEST-TLS-001 | ADR-007 | RMI-over-TLS round trip | Succeeds | `VaultServiceTlsIntegrationTest` — `ping()` and `login()` both succeed over real TLS; also manually verified against a live cross-process server | **Pass** |
+| TEST-TLS-002 | ADR-007, SEC-004 | Plain client vs. TLS-only server | Connection rejected | `VaultServiceTlsIntegrationTest.aPlainNonTlsClientCannotConnectToTheTlsOnlyRegistry` | **Pass** |
 | TEST-UI-001 | NFR-007 | Invalid login in UI | Error shown, no crash | — | Not Run |
 | TEST-UI-002 | NFR-007 | Lock state visibility | Indicated in list | — | Not Run |
 | TEST-UI-003 | NFR-007 | Upload button disabled state | Correct enable/disable | — | Not Run |

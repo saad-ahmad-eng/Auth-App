@@ -25,3 +25,11 @@ vault-storage/
 
 # Local-only config that may carry secrets/keys (Security.md — never hardcode secrets)
 *.local.properties
+
+# Generated AES-256 shared key (SharedKeyProvider, ADR-007/OQ-05) — dev-only,
+# regenerated per environment, never committed
+authlock-shared.key
+*.key
+
+# Generated TLS dev keystore/truststore (RMI-over-TLS, ADR-007/OQ-05)
+certs/
