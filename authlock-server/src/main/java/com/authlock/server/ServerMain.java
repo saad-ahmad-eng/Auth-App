@@ -65,8 +65,9 @@ public final class ServerMain {
             System.out.println("Implemented so far: ping() (Phase 2), login()/logout() (Phase 3),");
             System.out.println("  listFiles()/uploadFile()/downloadFile() (Phase 4),");
             System.out.println("  lockFile()/unlockFile() (Phase 5),");
-            System.out.println("  AES-256-GCM upload/download encryption + RMI-over-TLS (Phase 6).");
-            System.out.println("See Implementation.md Phase 7+ to continue.");
+            System.out.println("  AES-256-GCM upload/download encryption + RMI-over-TLS (Phase 6),");
+            System.out.println("  audit logging to audit.log (Phase 7).");
+            System.out.println("See Implementation.md Phase 8+ to continue.");
         } catch (Exception e) {
             System.err.println("Failed to start AuthLock server: " + e.getMessage());
             e.printStackTrace();

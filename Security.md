@@ -138,20 +138,20 @@ There is a single authenticated-user authorization tier in scope (no admin/guest
 
 ## 9. Audit Logging (SEC-008, NFR-010)
 
-Every event below is written as a structured (e.g., one JSON object per line), append-only record.
+**Resolved (Implementation Phase 7).** Every event below is written as a structured, one-JSON-object-per-line, append-only record (`AuditLogger`, ADR-008).
 
 | Event | Trigger |
 |---|---|
 | Login (success) | Valid credentials verified, session created. |
 | Login (failure) | Invalid credentials submitted. |
-| Logout | Explicit `logout()` call, or session expiry-driven cleanup. |
+| Logout | Explicit `logout()` call (success or an already-invalid token). |
 | Upload | `uploadFile()` completes (success or failure). |
 | Download | `downloadFile()` completes (success or failure). |
 | Lock | `lockFile()` attempted (granted or denied). |
 | Unlock | `unlockFile()` attempted (granted or denied — including non-owner attempts). |
-| Authentication failure | Any rejected login. |
-| Authorization failure | Any call rejected due to invalid/expired session or lock-ownership mismatch. |
-| Error | Any unexpected server-side error during a remote call. |
+| Error | Any unexpected, unclassified server-side error during a remote call. |
+
+**Derived Decision (Phase 7):** this documentation originally listed "Authentication failure" and "Authorization failure" as separate rows. Implementation revealed these are redundant with the per-operation rows above: a failed `login()` *is* the authentication-failure event (`LOGIN`/`FAILURE`/`AUTHENTICATION_FAILED`), and an `INVALID_SESSION`/`LOCK_NOT_OWNED` rejection on any method *is* that method's own authorization-failure event (e.g. `UPLOAD`/`FAILURE`/`INVALID_SESSION`). Every event type now maps 1:1 to a `VaultService` method (except `ERROR`, which has none), and `result` + `errorCode` carry the failure detail — the same information the original two generic rows would have carried, without a duplicate way of recording it. `listFiles()` is deliberately **not** audited (read-only, low information value — a decision already recorded in API-spec.md during the documentation phase, reaffirmed here rather than silently revisited).
 
 ### Event Metadata Schema
 
@@ -159,13 +159,15 @@ Every event below is written as a structured (e.g., one JSON object per line), a
 |---|---|
 | `timestamp` | ISO-8601 UTC timestamp of the event. |
 | `eventType` | One of the event names above. |
-| `userId` / `sessionId` | Identifier of the acting user/session (never the raw token — see §5). |
-| `operation` | The remote method invoked. |
-| `fileId` | Target file identifier, where applicable. |
+| `userId` | Identifier of the acting user — for a failed login specifically, the *attempted username* (no authenticated identity exists yet at that point; a username is not a secret, and logging attempted usernames on failed logins is standard practice for spotting brute-force/enumeration attempts). Never the raw session token — see §5. |
+| `operation` | The remote method invoked (e.g. `"uploadFile"`). |
+| `fileId` | Target file identifier, where applicable, else `null`. |
 | `result` | `SUCCESS` / `FAILURE` plus, on failure, the error code from [API-spec.md](API-spec.md) Error Model. |
-| `clientInfo` | Remote client host/IP as seen by the RMI server, where available. |
+| `clientInfo` | Remote client host/IP as seen by the RMI server (`RemoteServer.getClientHost()`), where available. |
 
-**Explicitly prohibited from the audit log:** plaintext passwords, password hashes, raw session tokens, encryption keys, and full file contents.
+**Explicitly prohibited from the audit log, and verified by test (TEST-SEC-005):** plaintext passwords, password hashes, raw session tokens, encryption keys, and full file contents.
+
+**Write reliability:** writes are synchronous, so no event is lost even if the server crashes immediately after (ADR-008). A failed *write itself* (e.g. disk full) is logged to stderr but does not fail the underlying operation — a deliberate fail-open choice on the audit trail's own durability, not on the vault's availability; see `AuditLogger`'s Javadoc for the trade-off reasoning.
 
 ---
 

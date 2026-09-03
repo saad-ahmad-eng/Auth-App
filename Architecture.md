@@ -116,13 +116,13 @@ This refines the `auth`-derived skeleton from [p1.md](p1.md) §10 by naming the 
 - **Dependencies:** `javax.crypto` (JCE) for AES-GCM; `javax.rmi.ssl` (JSSE, JDK-bundled) for RMI-over-TLS; key material via `SharedKeyProvider` (pre-shared key file — resolution of OQ-05, Security.md §7).
 - **Security considerations:** Entire component is governed by [Security.md](Security.md) §7; no custom cryptography. RMI-over-TLS's dev certificate is `localhost`-scoped; see §3 Deployment Architecture for the Phase 11 cloud-deployment implication.
 
-### 2.9 Audit Logger
+### 2.9 Audit Logger — **implemented, Implementation Phase 7**
 - **Purpose:** Durable, structured recording of every security-relevant event.
-- **Responsibilities:** Append one structured record per event (§Security.md §9) synchronously so no event is lost even if the server crashes immediately after.
-- **Inputs:** event type, actor, operation, target, result, metadata.
-- **Outputs:** append to `audit.log` (or equivalent).
-- **Dependencies:** Secure File Storage (shares the server's local disk) or a dedicated log path.
-- **Security considerations:** Never receives passwords, tokens, or keys as loggable fields (enforced by only accepting the sanitized schema in §9 of Security.md).
+- **Responsibilities:** Append one structured record per event (Security.md §9) synchronously so no event is lost even if the server crashes immediately after. `VaultServiceImpl` calls it at every method's success/failure exit point except `listFiles()` (deliberately unaudited, Security.md §9).
+- **Inputs:** event type, actor, operation, target, result, metadata — via `AuditLogger.logSuccess`/`logFailure` (`authlock-server.audit`).
+- **Outputs:** append to `audit.log` (configurable via `-Dauthlock.audit.file=<path>`), one JSON object per line, hand-serialized (no JSON library dependency).
+- **Dependencies:** A configurable log path (default the server's working directory); no dependency on Secure File Storage/`VaultFileService` — audit and vault storage are independent concerns even though they may share a disk.
+- **Security considerations:** Never receives passwords, tokens, or keys as loggable fields (enforced by only accepting the sanitized schema in §9 of Security.md) — verified by test (TEST-SEC-005). A failed audit write does not block the underlying operation (fail-open on the log's own durability, not on vault availability).
 
 ### 2.10 Secure File Storage
 - **Purpose:** Physical persistence layer.

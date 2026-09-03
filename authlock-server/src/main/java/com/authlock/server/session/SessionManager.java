@@ -121,16 +121,21 @@ public final class SessionManager implements AutoCloseable {
         return Optional.of(session);
     }
 
-    /** Invalidates a session immediately (logout). Returns true if a session was actually removed. */
-    public boolean invalidate(String token) {
+    /**
+     * Invalidates a session immediately (logout). Returns the removed
+     * session (so the caller can attribute an audit record to its owning
+     * user — Phase 7, Security.md §9) if one was actually removed, or
+     * empty for an unknown/already-invalidated token.
+     */
+    public Optional<Session> invalidate(String token) {
         if (token == null) {
-            return false;
+            return Optional.empty();
         }
-        boolean removed = sessionsByToken.remove(token) != null;
-        if (removed) {
+        Session removed = sessionsByToken.remove(token);
+        if (removed != null) {
             sessionEndedListener.accept(token);
         }
-        return removed;
+        return Optional.ofNullable(removed);
     }
 
     /** Number of currently tracked (not necessarily still valid) sessions — for tests/diagnostics. */

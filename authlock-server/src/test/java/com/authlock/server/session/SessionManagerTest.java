@@ -103,10 +103,10 @@ class SessionManagerTest {
     @Test
     void testSession004_reuseAfterLogoutIsRejected() {
         String token = sessionManager.create("user-1");
-        assertTrue(sessionManager.invalidate(token));
+        assertTrue(sessionManager.invalidate(token).isPresent());
 
         assertTrue(sessionManager.validate(token).isEmpty());
-        assertFalse(sessionManager.invalidate(token), "second logout of the same token should not re-remove anything");
+        assertTrue(sessionManager.invalidate(token).isEmpty(), "second logout of the same token should not re-remove anything");
     }
 
     @Test

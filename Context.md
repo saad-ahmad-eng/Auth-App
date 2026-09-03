@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–6 `Completed`; Phase 7 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–7 `Completed`; Phase 8 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 6 — Encryption — Completed.** Both AES-256-GCM file-payload encryption and RMI-over-TLS (whole-channel) are implemented, tested, and manually verified together. OQ-05 — the one Open Question flagged as a hard blocker in the entire roadmap — is now resolved. Next up: **Phase 7 — Audit Logging** (not started).
+**Implementation Phase 7 — Audit Logging — Completed.** Every `VaultService` method (except the deliberately-unaudited `listFiles()`) now writes a structured record to `audit.log` on every success/failure exit. FR-011 is fully implemented and tested, including a real end-to-end proof that no password or session token ever reaches the log. Next up: **Phase 8 — Swing UI** (not started) — the first phase touching the actual GUI.
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -60,13 +60,14 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 6 — Encryption (resolves OQ-05, the roadmap's one hard blocker):** AES-256-GCM file-payload encryption (`AesGcmCipher`, `SharedKeyProvider` — a pre-shared key file, honestly documented as a coursework-scope simplification), applied per-hop, not end-to-end — client encrypts before upload, server decrypts on receipt/re-encrypts before download, storage stays plaintext, exactly matching the design recorded in Security.md §7 during the documentation phase. **Plus RMI-over-TLS** (`DevTlsSetup`, self-signed dev cert auto-generated via `keytool`), on by default, protecting the whole channel including `login()` credentials — closing a real gap the payload-only encryption would have left open. Hit and fixed one genuine, instructive bug along the way: RMI embeds the server's actual detected LAN IP in exported stubs by default, which broke TLS hostname verification against a `localhost`-scoped cert — fixed by defaulting `java.rmi.server.hostname=localhost`. Every existing upload/download call site across the whole test suite (~25 methods) was updated to encrypt/decrypt properly, since encryption is now mandatory, not optional. 76 passing tests total (15 new); manually verified with both encryption and TLS active simultaneously against a live cross-process server — including confirming the file on disk is genuinely plaintext (per the documented at-rest posture) while the wire bytes are genuinely ciphertext.
 
+**Plus, Implementation Phase 7 — Audit Logging:** `AuditLogger` (`authlock-server.audit`) — structured, one-JSON-object-per-line, append-only, hand-serialized (no JSON library dependency), synchronous writes, serialized under a single lock (proven safe under 20 concurrent writers × 10 events with zero lost/corrupted lines). Wired into every `VaultService` method's every success/failure exit point — `login`, `logout`, `uploadFile`, `downloadFile`, `lockFile`, `unlockFile` — except `listFiles()` (deliberately unaudited, a Phase 0 decision reaffirmed, not silently revisited). Simplified Security.md §9's original schema along the way: merged the separate "Authentication failure"/"Authorization failure" event rows into each triggering operation's own event type + `FAILURE` result + `ErrorCode`, since they were redundant with information already being recorded (Derived Decision). `SessionManager.invalidate()` changed to return the removed `Session` (not just a boolean) so `logout()` can attribute its success record to the right user. 87 passing tests total (11 new); manually verified against a live cross-process server — read the real `audit.log` afterward and confirmed every event was recorded correctly, in order, with the right `fileId`/`userId` correlation, and grepped it for both passwords and session tokens to confirm neither ever appeared.
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 through 6 are complete (§13 Implementation Log). Phases 7 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 7 are complete (§13 Implementation Log). Phases 8 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 7 — Audit Logging
 - Phase 8 — Swing UI
 - Phase 9 — Integration
 - Phase 10 — Testing (execution)
@@ -322,10 +323,36 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 **Next Steps:** Begin Phase 7 — Audit Logging: `AuditLogger` (structured, append-only, per Security.md §9's schema), call sites added at every method's success/failure exit point across Authentication, Session, Vault, and Lock modules (all currently have `// Audit logging ... is Phase 7's responsibility` comments marking exactly where).
 **Blockers:** None for Phase 7.
 
+### Phase 7 — Audit Logging — `Completed`
+
+**Current Phase:** Implementation Phase 7
+**Current Status:** Completed
+**Completed:**
+- Built `AuditLogger`/`AuditRecord`/`AuditEventType`/`AuditResult` (`authlock-server.audit`) per Security.md §9's schema — structured, append-only, one JSON object per line, hand-serialized (properly escapes quotes/backslashes/newlines/control characters — verified by test), synchronous writes serialized under a single lock.
+- **Simplified the schema along the way (Derived Decision):** merged Security.md §9's original separate "Authentication failure"/"Authorization failure" rows into each triggering operation's own event type + `FAILURE` result + `ErrorCode` — every event type now maps 1:1 to a `VaultService` method (except `ERROR`, which has none), eliminating a redundant way of recording the same fact. Documented and reasoned through in Security.md §9 and Decision.md ADR-008, not silently changed.
+- Wired `AuditLogger` into every method's every success/failure exit: `login` (including logging the *attempted username*, not a resolved identity, on a failed login — standard brute-force/enumeration-detection practice, not a secret), `logout`, `uploadFile` (including the tamper-detection and malformed-ciphertext failure paths from Phase 6), `downloadFile`, `lockFile`, `unlockFile`. `listFiles()` stays deliberately unaudited (reaffirmed the Phase 0/4 decision).
+- Changed `SessionManager.invalidate()` to return the removed `Session` (was: `boolean`) so `logout()`'s success audit record can be attributed to the right `userId` — a small, mechanical, well-contained signature change (two call sites: `VaultServiceImpl`, `SessionManagerTest`).
+- Added two new session-validation/file-existence guard overloads in `VaultServiceImpl` (auditing and non-auditing) rather than forcing every caller through one path — keeps `listFiles()`'s "no audit" decision naturally enforced by which overload it calls, not by an extra conditional.
+- **Considered and deliberately declined** a blanket `catch (RuntimeException)` wrapper around every method purely to force artificial `ERROR`-type audit coverage — judged unnecessary invasive complexity for this coursework scope (no such unclassified error path is currently reachable in normal operation). Proved `ERROR` is a usable, correctly-serializing event type via a direct unit test instead of contriving one through the RMI stack.
+- Real client IP/host captured via `RemoteServer.getClientHost()`, falling back to `"unknown"` defensively.
+**Files Created:** `AuditEventType.java`, `AuditResult.java`, `AuditRecord.java`, `AuditLogger.java` (server.audit); `AuditLoggerTest.java` (server.audit tests); `VaultServiceAuditIntegrationTest.java` (server tests).
+**Files Modified:** `VaultServiceImpl.java` (audit wiring throughout), `SessionManager.java` (`invalidate()` return type), `SessionManagerTest.java` (matching call-site update), `ServerMain.java` (banner); `Decision.md` ADR-008, `Security.md` §9, `Architecture.md` §2.9, `API-spec.md` (`listFiles` audit-event note), `Testing.md` §5 (TEST-SEC-005 → Pass).
+**Tests Added:** 11 new (`AuditLoggerTest` ×7 including a 20-thread concurrent-write stress test, `VaultServiceAuditIntegrationTest` ×4).
+**Tests Passed:** All 87 tests (`./gradlew clean build`). Manually verified against a live cross-process server: ran the full login/upload/download/lock/unlock/logout demo, then read the real `audit.log` — 10 correctly-ordered, correctly-correlated records (matching `fileId`/`userId` across events), and confirmed by `grep` that neither the plaintext password nor either raw session token appeared anywhere in the file.
+**Tests Failed:** None.
+**Known Issues:** None new.
+**Architecture Changes:** None — implements exactly the Audit Logger component already specified in Architecture.md §2.9.
+**Security Changes:** SEC-008 (audit logging) and NFR-010 (auditability) now fully implemented and tested, including the explicit no-secrets-in-log guarantee (TEST-SEC-005).
+**Open Decisions:** None resolved or newly raised this phase. Same four remain open: OQ-02 (SLA, low priority), OQ-06 (cloud provider, Phase 11), OQ-10 (at-rest encryption, low priority), OQ-14 (developer-name discrepancy, Phase 12).
+**Next Steps:** Begin Phase 8 — Swing UI: replace `ClientMain`'s console demo with the real login screen and dashboard (UIUX.md §1–§2) — file list, upload/download/lock/unlock/refresh/logout controls, connection-state and lock-state indicators, all wired to the same `VaultService` calls the console demo already exercises correctly.
+**Blockers:** None for Phase 8.
+
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 7 — Audit Logging.** Every module (`login`/`logout`, `uploadFile`/`downloadFile`, `lockFile`/`unlockFile`) already has an explicit `// Audit logging (..., FR-011) is Phase 7's responsibility` comment marking exactly where the call sites go — this phase is mostly mechanical once `AuditLogger` itself exists, per Security.md §9's event schema (timestamp, eventType, userId/sessionId, operation, fileId, result, clientInfo) and the explicit prohibition on ever logging passwords, tokens, or keys.
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 8 — Swing UI.** This is the first phase that touches the actual GUI — every backend capability it needs (`login`, `logout`, `listFiles`, `uploadFile`, `downloadFile`, `lockFile`, `unlockFile`, all encrypted and TLS-protected, all audited) is already implemented, tested, and proven working through `ClientMain`'s console demo. Phase 8's job is to replace that console flow with real Swing components per UIUX.md §1 (Login Screen) and §2 (Main Dashboard) — the RMI/crypto/session-handling logic underneath does not need to change, only how the user triggers it.
+
+No Open Question blocks Phase 8.
 
 No Open Question blocks Phase 7.

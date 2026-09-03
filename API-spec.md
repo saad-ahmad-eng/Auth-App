@@ -50,7 +50,7 @@ The complete remote contract exposed by the server is a single interface, `Vault
 | **Authentication requirement** | Valid session token. |
 | **Authorization requirement** | Any authenticated user may list all files (no per-file ACL beyond lock state, per PRD §6 scope). |
 | **Side effects** | None (read-only). |
-| **Audit event** | Not separately audited by default (read-only, low-risk) — **Open Question:** should listing be audited too? Default: no, to avoid log noise; can be added if the report needs it. |
+| **Audit event** | **Resolved (Phase 7):** not audited — read-only, low information value, would dominate log volume relative to the security-relevant write/auth operations. |
 | **Concurrency behavior** | Safe under concurrent calls; reflects a point-in-time snapshot of metadata + lock state. |
 | **Failure behavior** | Invalid session → `INVALID_SESSION`. |
 
