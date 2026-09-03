@@ -17,13 +17,13 @@
 
 ## 2. Current Status
 
-**Status: `Completed` (Documentation Phase only) — implementation has not begun.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phase 1 (Project Skeleton) `Completed`; Phase 2 `Not Started`.**
 
 ## 3. Current Phase
 
-**Documentation / Architecture / Planning Phase.**
+**Implementation Phase 1 — Project Skeleton — Completed.** Next up: **Phase 2 — RMI Infrastructure** (not started).
 
-Per [p1.md](p1.md), this phase explicitly excludes writing application code, Java source files, the Swing UI, RMI services, authentication, encryption, locking, or cloud deployment. None of that has been done, and none should be started without an explicit go-ahead to begin [Implementation.md](Implementation.md) Phase 1.
+The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
 ---
 
@@ -48,13 +48,14 @@ All 14 required documents have been created, in the dependency order specified b
 
 Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).docx` (the `auth` proposal, converted via LibreOffice headless to text for analysis).
 
+**Plus, Implementation Phase 1 — Project Skeleton (see §13 Implementation Log for full detail):** Gradle multi-module build (`authlock-common`/`authlock-server`/`authlock-client`) scaffolded, full package structure created, stub entry points added, Git repository initialized with an initial commit, build verified working (`./gradlew build`).
+
 ---
 
 ## 5. Pending Work
 
-**Everything in [Implementation.md](Implementation.md) — Phases 1 through 12 — is Not Started:**
+**Phase 1 is complete (§13 Implementation Log). Phases 2 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 1 — Project Skeleton
 - Phase 2 — RMI Infrastructure
 - Phase 3 — Authentication & Session Management
 - Phase 4 — File Vault
@@ -81,7 +82,7 @@ Client (Swing) ↔ RMI Registry + `VaultService` remote object ↔ [Authenticati
 |---|---|---|---|
 | OQ-01 | How are user accounts actually provisioned, since there is no registration flow? | A fixed seed list or an admin-only provisioning path (PRD §4.1) | Phase 3 |
 | OQ-02 | What is the numeric performance SLA (NFR-002)? | None fixed — treated qualitatively only | Low priority |
-| OQ-03 | Final JDK version to target | JDK 17 or 21 LTS (TRD §2.1) | Phase 1 |
+| ~~OQ-03~~ | ~~Final JDK version and build tool~~ | **Resolved (Phase 1):** JDK 17, Gradle (Maven unavailable in target environment) — see TRD.md §4 | — |
 | OQ-04 | Should sessions/locks persist across server restarts? | No — in-memory only, acceptable loss on restart (ADR-006) | Phase 3, Phase 5 |
 | **OQ-05** | **Final encryption key-management approach** | RMI-over-TLS as primary + AES-GCM on payload as defense-in-depth (Security.md §7) | **Phase 6 — hard blocker** |
 | OQ-06 | Which free-tier cloud provider (AWS/Oracle/GCP)? | Not fixed — any satisfies `auth` §8 | Phase 11 |
@@ -162,14 +163,36 @@ See [Security.md](Security.md) for the complete threat model, SEC-001–SEC-010 
 
 ## 13. Implementation Log
 
-*(Empty — no implementation work has occurred yet. The first entry here should be made when Phase 1 of [Implementation.md](Implementation.md) begins.)*
+### Phase 1 — Project Skeleton — `Completed`
+
+**Current Phase:** Implementation Phase 1
+**Current Status:** Completed
+**Completed:**
+- Verified target environment: JDK 17 (`openjdk 17.0.20`) present; Maven absent; Gradle 8.14.4 present.
+- Updated [TRD.md](TRD.md) §4 to confirm JDK 17 + Gradle (was: Maven recommendation) — resolves OQ-03.
+- Created Gradle multi-project build: `authlock-common`, `authlock-server`, `authlock-client`, root `build.gradle`/`settings.gradle` applying a shared Java 17 toolchain and JUnit 5.
+- Created the full package structure from [Development-rules.md](Development-rules.md) §2 (`com.authlock.common`; `com.authlock.server.{auth,session,vault,lock,crypto,audit}`; `com.authlock.client.{ui,rmi}`), each documented with a `package-info.java` pointing at its owning spec section and target phase.
+- Added stub `ServerMain` / `ClientMain` entry points — print-only placeholders, no RMI/UI/business logic (per [p1.md](p1.md) "do not implement yet" for anything beyond skeleton).
+- Generated the Gradle wrapper (`./gradlew`) so the build doesn't depend on a local Gradle install.
+- Added `.gitignore` and `README.md` (documentation index + build/run/test instructions).
+- Initialized the Git repository (`git init`) and made the first commit.
+**Files Created:** `settings.gradle`, `build.gradle`, `authlock-{common,server,client}/build.gradle`, all `package-info.java` files listed above, `ServerMain.java`, `ClientMain.java`, `.gitignore`, `README.md`, `gradlew`/`gradlew.bat`/`gradle/wrapper/*`.
+**Files Modified:** [TRD.md](TRD.md) (§4 Development Environment — Maven→Gradle decision recorded inline, no new ADR needed as it's tooling-only).
+**Tests Added:** None yet (no test sources — JUnit 5 wired into the build but Phase 1 has no logic to test).
+**Tests Passed / Failed:** N/A.
+**Known Issues:** The `application` plugin's plain `jar` task does not set a `Main-Class` manifest attribute, so `java -jar authlock-server.jar` does not work directly yet — use `./gradlew :authlock-server:run` (or `:authlock-client:run`) instead. A properly packaged, directly-runnable JAR (per `auth` §10 deliverables) is Phase 12's responsibility (Packaging & Demonstration); not a Phase 1 defect.
+**Architecture Changes:** None — Phase 1 is pure scaffolding, no design deviation from Architecture.md/Backend.md.
+**Security Changes:** None.
+**Open Decisions:** OQ-03 resolved (see §7 above). All other Open Questions unchanged.
+**Next Steps:** Begin Phase 2 — RMI Infrastructure (define `VaultService` in `authlock-common`, implement registry bootstrap in `ServerMain`, implement lookup in `ClientMain`, verify over `localhost`).
+**Blockers:** None for Phase 2. (OQ-05 remains a blocker for Phase 6 only.)
+
+Build verification performed this session: `./gradlew build` → `BUILD SUCCESSFUL`; `./gradlew :authlock-server:run` and `./gradlew :authlock-client:run` both print their expected placeholder output.
 
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 1 — Project Skeleton**, after the developer confirms:
-- OQ-03 (JDK version) — needed to configure the build.
-- Build tool choice (Maven recommended, TRD §4) — needed to scaffold the project.
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 2 — RMI Infrastructure** — define the `VaultService` remote interface in `authlock-common`, implement the registry bootstrap in `authlock-server`'s `ServerMain`, implement the client-side lookup in `authlock-client`'s `ClientMain`, and verify a basic round trip over `localhost` (TEST-INT-001).
 
-No other Open Question blocks Phase 1 or Phase 2. OQ-05 must be resolved before Phase 6 specifically, not before starting implementation generally.
+No Open Question blocks Phase 2. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally.
