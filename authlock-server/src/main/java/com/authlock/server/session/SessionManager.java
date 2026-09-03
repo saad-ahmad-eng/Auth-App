@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Owns session lifecycle: creation, validation, invalidation, and expiry
@@ -27,6 +28,15 @@ import java.util.concurrent.TimeUnit;
  * entropy: 256 bits here) and never derived from predictable data. The
  * session table is a {@link ConcurrentHashMap}, safe under the concurrent
  * RMI call threads described in Backend.md §3.
+ *
+ * <p><b>Phase 5 addition:</b> an optional session-ended listener
+ * (Architecture.md §2.7 — the Lock Manager's documented input is "session-
+ * expiry notifications from Session Manager") is invoked whenever a session
+ * ends, for any reason: idle/absolute expiry (lazily in {@link #validate},
+ * or via the periodic cleanup sweep) or explicit {@link #invalidate}
+ * (logout). This is how {@code LockManager} releases locks left behind by
+ * a session that ended — see Security.md §8 "stale lock recovery" and
+ * API-spec.md {@code logout}'s documented side effect.
  */
 public final class SessionManager implements AutoCloseable {
 
@@ -41,6 +51,7 @@ public final class SessionManager implements AutoCloseable {
     private final Clock clock;
     private final Duration idleTimeout;
     private final Duration maxLifetime;
+    private volatile Consumer<String> sessionEndedListener = token -> { };
 
     public SessionManager() {
         this(IDLE_TIMEOUT, MAX_LIFETIME, Clock.systemUTC(), true);
@@ -69,6 +80,15 @@ public final class SessionManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Registers the callback invoked (with the session token) whenever a
+     * session ends — idle/absolute expiry or explicit logout. {@code null}
+     * clears any previously registered listener.
+     */
+    public void setSessionEndedListener(Consumer<String> listener) {
+        this.sessionEndedListener = listener == null ? (token -> { }) : listener;
+    }
+
     /** Creates a new session for the given user and returns its opaque token. */
     public String create(String userId) {
         String token = generateToken();
@@ -94,6 +114,7 @@ public final class SessionManager implements AutoCloseable {
         Instant now = clock.instant();
         if (isExpired(session, now)) {
             sessionsByToken.remove(token);
+            sessionEndedListener.accept(token);
             return Optional.empty();
         }
         session.touch(now);
@@ -105,7 +126,11 @@ public final class SessionManager implements AutoCloseable {
         if (token == null) {
             return false;
         }
-        return sessionsByToken.remove(token) != null;
+        boolean removed = sessionsByToken.remove(token) != null;
+        if (removed) {
+            sessionEndedListener.accept(token);
+        }
+        return removed;
     }
 
     /** Number of currently tracked (not necessarily still valid) sessions — for tests/diagnostics. */
@@ -115,7 +140,13 @@ public final class SessionManager implements AutoCloseable {
 
     private void removeExpiredSessions() {
         Instant now = clock.instant();
-        sessionsByToken.values().removeIf(session -> isExpired(session, now));
+        sessionsByToken.entrySet().removeIf(entry -> {
+            boolean expired = isExpired(entry.getValue(), now);
+            if (expired) {
+                sessionEndedListener.accept(entry.getKey());
+            }
+            return expired;
+        });
     }
 
     private boolean isExpired(Session session, Instant now) {

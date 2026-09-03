@@ -10,6 +10,7 @@ import com.authlock.server.auth.AuthenticationService;
 import com.authlock.server.auth.PasswordHasher;
 import com.authlock.server.auth.User;
 import com.authlock.server.auth.UserStore;
+import com.authlock.server.lock.LockManager;
 import com.authlock.server.session.Session;
 import com.authlock.server.session.SessionManager;
 import com.authlock.server.vault.FileRecord;
@@ -30,12 +31,15 @@ import java.util.stream.Collectors;
  * <p><b>Phase 2:</b> {@link #ping()}.
  * <b>Phase 3:</b> {@link #login} / {@link #logout}, backed by
  * {@link AuthenticationService} and {@link SessionManager}.
- * <b>Phase 4 (this addition):</b> {@link #listFiles}, {@link #uploadFile},
- * {@link #downloadFile}, backed by {@link VaultFileService} (Architecture.md
- * §2.6), each guarded by {@link #requireValidSession(String)}.
+ * <b>Phase 4:</b> {@link #listFiles}, {@link #uploadFile}, {@link #downloadFile},
+ * backed by {@link VaultFileService}.
+ * <b>Phase 5 (this addition):</b> {@link #lockFile}, {@link #unlockFile},
+ * backed by {@link LockManager} (Architecture.md §2.7) — the project's core
+ * distributed-locking feature. {@code SessionManager}'s session-ended
+ * listener is wired to {@code LockManager.releaseAllOwnedBySession} here,
+ * closing the stale-lock-recovery loop (Security.md §8).
  *
- * <p>Lock, encryption, and audit behavior remain unimplemented — added in
- * Phases 5–7 as their internal services are built.
+ * <p>Encryption and audit behavior remain unimplemented — added in Phases 6–7.
  */
 public class VaultServiceImpl extends UnicastRemoteObject implements VaultService {
 
@@ -44,6 +48,7 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
     private final AuthenticationService authenticationService;
     private final SessionManager sessionManager;
     private final VaultFileService vaultFileService;
+    private final LockManager lockManager;
 
     public VaultServiceImpl(int port) throws RemoteException, IOException {
         super(port);
@@ -54,6 +59,11 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
 
         Path vaultDir = Path.of(System.getProperty("authlock.vault.dir", DEFAULT_VAULT_DIR));
         this.vaultFileService = new VaultFileService(vaultDir);
+
+        this.lockManager = new LockManager();
+        // Architecture.md §2.7: Lock Manager's documented input includes
+        // "session-expiry notifications from Session Manager" — this is that wire.
+        this.sessionManager.setSessionEndedListener(lockManager::releaseAllOwnedBySession);
     }
 
     public VaultServiceImpl() throws RemoteException, IOException {
@@ -80,6 +90,8 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
 
     @Override
     public void logout(String sessionToken) throws RemoteException, VaultServiceException {
+        // invalidate() itself fires the session-ended listener, which releases
+        // any locks this session held (API-spec.md logout's documented side effect).
         boolean invalidated = sessionManager.invalidate(sessionToken);
         if (!invalidated) {
             throw new VaultServiceException(ErrorCode.INVALID_SESSION, "Session is not valid.");
@@ -91,7 +103,7 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
     public List<FileMetadata> listFiles(String sessionToken) throws RemoteException, VaultServiceException {
         requireValidSession(sessionToken);
         return vaultFileService.listAll().stream()
-                .map(VaultServiceImpl::toDto)
+                .map(record -> toDto(record, sessionToken))
                 .collect(Collectors.toList());
     }
 
@@ -119,6 +131,8 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
                 throw new VaultServiceException(ErrorCode.FILE_NOT_FOUND, "No such file.");
             }
             // Audit logging (DOWNLOAD, FR-011) is Phase 7's responsibility — not yet wired in.
+            // Locked-file download policy (OQ-09): no check here — a lock protects
+            // writes, not reads, so download proceeds regardless of lock state.
             VaultFileService.StoredFile stored = found.get();
             return new FileContent(stored.content(), stored.metadata().iv(), stored.metadata().checksum());
         } catch (IOException readError) {
@@ -126,11 +140,53 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
         }
     }
 
-    private static FileMetadata toDto(FileRecord record) {
-        // Phase 5 will replace the hardcoded "UNLOCKED"/null once the Lock Manager exists.
+    @Override
+    public void lockFile(String sessionToken, String fileId) throws RemoteException, VaultServiceException {
+        requireValidSession(sessionToken);
+        requireFileExists(fileId);
+
+        boolean granted = lockManager.acquire(fileId, sessionToken);
+        if (!granted) {
+            throw new VaultServiceException(ErrorCode.FILE_LOCKED, "File is currently locked by another session.");
+        }
+        // Audit logging (LOCK, FR-011) is Phase 7's responsibility — not yet wired in.
+    }
+
+    @Override
+    public void unlockFile(String sessionToken, String fileId) throws RemoteException, VaultServiceException {
+        requireValidSession(sessionToken);
+        requireFileExists(fileId);
+
+        boolean released = lockManager.release(fileId, sessionToken);
+        if (!released) {
+            throw new VaultServiceException(ErrorCode.LOCK_NOT_OWNED, "You do not hold the lock on this file.");
+        }
+        // Audit logging (UNLOCK, FR-011) is Phase 7's responsibility — not yet wired in.
+    }
+
+    private void requireFileExists(String fileId) throws VaultServiceException {
+        if (!vaultFileService.exists(fileId)) {
+            throw new VaultServiceException(ErrorCode.FILE_NOT_FOUND, "No such file.");
+        }
+    }
+
+    /**
+     * Maps a stored file's metadata to its RMI-facing DTO, including real
+     * lock state (Phase 5) — {@code "LOCKED"}/{@code "UNLOCKED"}, with a
+     * generic {@code lockOwnerHint} ("you" if the caller holds it, otherwise
+     * "another user") that never discloses another session's raw token or
+     * identity (API-spec.md's minimal-disclosure note on this field).
+     */
+    private FileMetadata toDto(FileRecord record, String callerSessionToken) {
+        Optional<String> lockOwner = lockManager.currentOwner(record.fileId());
+        String lockState = lockOwner.isPresent() ? "LOCKED" : "UNLOCKED";
+        String lockOwnerHint = lockOwner
+                .map(owner -> owner.equals(callerSessionToken) ? "you" : "another user")
+                .orElse(null);
+
         return new FileMetadata(
                 record.fileId(), record.filename(), record.size(), record.owner(),
-                record.createdAt(), record.modifiedAt(), "UNLOCKED", null);
+                record.createdAt(), record.modifiedAt(), lockState, lockOwnerHint);
     }
 
     /**

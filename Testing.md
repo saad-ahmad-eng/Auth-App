@@ -132,16 +132,16 @@ This is the project's headline distributed-systems demonstration and receives th
 | TEST-FILE-004 | FR-007 | Download valid file | Checksum match | Server-returned checksum matches independently computed SHA-256 | **Pass** |
 | TEST-FILE-005 | FR-007 | Download missing file | `FILE_NOT_FOUND` | Confirmed | **Pass** |
 | TEST-FILE-006 | FR-007, SEC-007 | Unauthorized download | `INVALID_SESSION` | Confirmed (also `listFiles`/`uploadFile` with an invalid token) | **Pass** |
-| TEST-LOCK-001 | FR-008 | Acquire lock | Granted | — | Not Run |
-| TEST-LOCK-002 | FR-008 | Second user locks | `FILE_LOCKED` | — | Not Run |
-| TEST-LOCK-003 | FR-009 | Owner unlocks | Succeeds | — | Not Run |
-| TEST-LOCK-004 | FR-009 | Non-owner unlocks | `LOCK_NOT_OWNED` | — | Not Run |
-| TEST-LOCK-005 | FR-010 | Pairwise lock race | One winner | — | Not Run |
-| TEST-LOCK-006 | SEC-009 | Stale lock recovery | Released after expiry | — | Not Run |
-| TEST-LOCK-007 | SEC-009 | Lock timeout | Reclaimable after timeout | — | Not Run |
-| **TEST-CONC-001** | **FR-010** | **N-way concurrent lock race** | **Exactly one winner, every run** | — | **Not Run** |
-| TEST-CONC-002 | NFR-006 | Concurrent uploads, different files | No contention | — | Not Run |
-| TEST-CONC-003 | NFR-006 | Concurrent listFiles during lock/unlock | Consistent, no crash | — | Not Run |
+| TEST-LOCK-001 | FR-008 | Acquire lock | Granted | Confirmed at unit level (`LockManagerTest`) and over real RMI | **Pass** |
+| TEST-LOCK-002 | FR-008 | Second user locks | `FILE_LOCKED` | Confirmed at both levels; lock remains with original owner | **Pass** |
+| TEST-LOCK-003 | FR-009 | Owner unlocks | Succeeds | Confirmed; file re-lockable by another session immediately after | **Pass** |
+| TEST-LOCK-004 | FR-009 | Non-owner unlocks | `LOCK_NOT_OWNED` | Confirmed at both levels (also: unlocking an already-unlocked file → same error) | **Pass** |
+| TEST-LOCK-005 | FR-010 | Pairwise lock race | One winner | Sequential sanity check at unit level; full N-way race is TEST-CONC-001 | **Pass** |
+| TEST-LOCK-006 | SEC-009 | Stale lock recovery | Released after expiry | Deterministic-clock unit test; also confirmed a session's locks release the instant that session ends (expiry or logout), via `SessionManager`'s session-ended listener → `LockManager.releaseAllOwnedBySession` | **Pass** |
+| TEST-LOCK-007 | SEC-009 | Lock timeout | Reclaimable after timeout | Confirmed with a deterministic clock: not reclaimable at 14 min, reclaimable at 16 min (15-min timeout) | **Pass** |
+| **TEST-CONC-001** | **FR-010** | **N-way concurrent lock race** | **Exactly one winner, every run** | **5 real concurrent client sessions, real RMI, 30 rounds/run — re-run 4 times during development (120+ total race rounds), exactly one winner every single round, zero failures** | **Pass** |
+| TEST-CONC-002 | NFR-006 | Concurrent uploads, different files | No contention | 8 concurrent uploaders, real RMI, all succeed with 8 distinct fileIds | **Pass** |
+| TEST-CONC-003 | NFR-006 | Concurrent listFiles during lock/unlock | Consistent, no crash | 200 concurrent `listFiles()` reads against a continuous background lock/unlock cycle — no errors, always consistent | **Pass** |
 | TEST-SEC-001 | SEC-006 | Path traversal filename | Neutralized | Rejected with `UPLOAD_FAILED` at both the storage-layer unit test and over real RMI (`../../etc/passwd`, `nested/dir/file.txt`) | **Pass** |
 | TEST-SEC-002 | SEC-003, SEC-007 | Unauthorized/garbage token | `INVALID_SESSION` | — | Not Run |
 | TEST-SEC-003 | SEC-004 | Tampered ciphertext | Rejected | — | Not Run |

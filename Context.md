@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–4 `Completed`; Phase 5 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–5 `Completed`; Phase 6 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 4 — File Vault — Completed.** Next up: **Phase 5 — Distributed Locking** (not started) — the project's headline feature.
+**Implementation Phase 5 — Distributed Locking — Completed.** The project's headline feature (`auth` §3) is implemented and its mandatory concurrency proof (TEST-CONC-001) is passing reliably. Next up: **Phase 6 — Encryption** (not started) — the one phase with a hard-blocking Open Question (OQ-05).
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -56,13 +56,14 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 4 — File Vault:** `VaultFileService` (flat `<fileId>.properties` sidecar + `<fileId>.bin` storage, resolves OQ-07; metadata rebuilt from disk at startup so the vault survives a restart), SHA-256 checksum computed at upload and re-verified at download, filename validation rejecting path-traversal attempts (SEC-006), `listFiles()`/`uploadFile()`/`downloadFile()` wired into `VaultService` (also resolves OQ-11: uploads always create a new `fileId`, never an in-place overwrite). 38 passing tests total; manually verified against a live cross-process server (upload → list → download, byte-identical, checksum confirmed, and files verified physically persisted on disk).
 
+**Plus, Implementation Phase 5 — Distributed Locking:** `LockManager` (atomic per-file `ConcurrentHashMap.compute()` acquire/release, resolves OQ-12/OQ-13/OQ-09), `lockFile()`/`unlockFile()` wired into `VaultService` (contention reported via `FILE_LOCKED` exception, not a `LockResult` DTO — a Derived Decision finalized this phase), real lock state now populates `listFiles()`'s `FileMetadata` (with a "you"/"another user" hint, never a raw identity), and stale-lock recovery closed the loop via a new `SessionManager` session-ended listener feeding `LockManager.releaseAllOwnedBySession`. **The mandatory concurrency proof, TEST-CONC-001** (5 real concurrent sessions, real RMI, 30 rounds per run) **passed with exactly one winner every round, across 4 separate runs (120+ total race rounds, zero failures).** 61 passing tests total; manually verified against a live cross-process server, including watching bob's lock/unlock attempts get correctly rejected while alice held the lock.
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 through 4 are complete (§13 Implementation Log). Phases 5 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 5 are complete (§13 Implementation Log). Phases 6 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 5 — Distributed Locking
 - Phase 6 — Encryption *(blocked on OQ-05, see §7)*
 - Phase 7 — Audit Logging
 - Phase 8 — Swing UI
@@ -86,16 +87,16 @@ Client (Swing) ↔ RMI Registry + `VaultService` remote object ↔ [Authenticati
 | ~~OQ-01~~ | ~~How are user accounts provisioned?~~ | **Resolved (Phase 3):** fixed seed list (`seed-users.properties`), hashed at server startup — see PRD.md §4.1, Backend.md §2.1 | — |
 | OQ-02 | What is the numeric performance SLA (NFR-002)? | None fixed — treated qualitatively only | Low priority |
 | ~~OQ-03~~ | ~~Final JDK version and build tool~~ | **Resolved (Phase 1):** JDK 17, Gradle (Maven unavailable in target environment) — see TRD.md §4 | — |
-| OQ-04 | Should sessions/locks persist across server restarts? | No — in-memory only, acceptable loss on restart (ADR-006) | Phase 3, Phase 5 |
+| ~~OQ-04~~ | ~~Should sessions/locks persist across server restarts?~~ | **Confirmed as implemented (Phases 3 & 5):** no — `SessionManager` and `LockManager` are both purely in-memory; a restart drops all sessions and locks (file *content*, unlike sessions/locks, does survive via `VaultFileService` — see OQ-07) | — |
 | **OQ-05** | **Final encryption key-management approach** | RMI-over-TLS as primary + AES-GCM on payload as defense-in-depth (Security.md §7) | **Phase 6 — hard blocker** |
 | OQ-06 | Which free-tier cloud provider (AWS/Oracle/GCP)? | Not fixed — any satisfies `auth` §8 | Phase 11 |
 | ~~OQ-07~~ | ~~Final metadata storage mechanism~~ | **Resolved (Phase 4):** flat `<fileId>.properties` sidecar per file, no embedded DB — see Decision.md ADR-010, `VaultFileService` | — |
 | ~~OQ-08~~ | ~~Session idle-timeout value~~ | **Resolved (Phase 3):** 30-minute sliding idle timeout + 8-hour absolute max lifetime — see `SessionManager`, Security.md §5 | — |
-| OQ-09 | Can a locked file still be downloaded read-only by a non-owner? | Yes, by default (API-spec.md `downloadFile`) | Phase 4/5 |
+| ~~OQ-09~~ | ~~Can a locked file still be downloaded read-only by a non-owner?~~ | **Resolved (Phase 5):** yes — `downloadFile()` performs no lock check | — |
 | OQ-10 | Is at-rest encryption implemented in this coursework scope? | No — in-transit only is the hard requirement | Phase 4/6 |
 | ~~OQ-11~~ | ~~Upload-with-same-name semantics~~ | **Resolved (Phase 4):** every `uploadFile()` call always creates a brand-new `fileId`, even if the filename matches an existing file — there is no in-place "update" operation in the current API surface. Duplicate display names can coexist as distinct files. Revisit only if a "replace/version a file" feature is ever wanted (PRD.md Future Enhancements) | — |
-| OQ-12 | Are locks owned per-session or per-user (does a user's second concurrent session share their own lock)? | Per-session (Security.md §8) | Phase 5 |
-| OQ-13 | Final lock timeout duration | ~15 minutes suggested, not finalized | Phase 5 |
+| ~~OQ-12~~ | ~~Are locks owned per-session or per-user?~~ | **Resolved (Phase 5):** per-session — see `FileLock`, Security.md §8 | — |
+| ~~OQ-13~~ | ~~Final lock timeout duration~~ | **Resolved (Phase 5):** fixed 15 minutes (`LockManager.LOCK_TIMEOUT`) | — |
 | OQ-14 | Developer-name discrepancy between `auth` ("Saad Ahmad") and `p1.md` ("Kuamil jeffery") | p1.md's explicit instruction followed as authoritative for documentation; flagged here for the user to confirm before the coursework report is finalized | Phase 12 (report authorship) |
 
 None of these block the *documentation* phase — each has a working default. OQ-05 is the only one that hard-blocks an *implementation* phase (Phase 6) if left unresolved.
@@ -268,10 +269,36 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 **Next Steps:** Begin Phase 5 — Distributed Locking (the project's headline feature): `LockManager` with atomic acquire/release, wire `lockFile()`/`unlockFile()`, wire real lock state into `listFiles()`'s `FileMetadata.lockState()`, wire stale-lock release into the Phase 3 session-cleanup sweep, and the mandatory N-client concurrent-lock race test (TEST-CONC-001).
 **Blockers:** None for Phase 5. OQ-12 (per-session vs. per-user lock ownership) and OQ-13 (lock timeout value) have working defaults (per-session; ~15 minutes) that Phase 5 will encode into real code, same pattern as OQ-01/OQ-08 in Phase 3.
 
+### Phase 5 — Distributed Locking — `Completed`
+
+**Current Phase:** Implementation Phase 5
+**Current Status:** Completed
+**Completed:**
+- Resolved **OQ-12**: `FileLock` records the owning **session** ID, not user ID — falls out naturally from reusing `SessionManager`'s existing session-token identity.
+- Resolved **OQ-13**: fixed 15-minute lock timeout (`LockManager.LOCK_TIMEOUT`), not sliding.
+- Resolved **OQ-09**: `downloadFile()` performs no lock check — locked files remain downloadable read-only (confirmed by a new test, not just asserted in docs).
+- **Finalized the API-spec.md design note left open since documentation phase:** `lockFile()`/`unlockFile()` report failure by throwing `VaultServiceException` (e.g. `FILE_LOCKED`), matching every other method — no `LockResult` DTO exists; removed it from API-spec.md.
+- Built `LockManager`: atomic `ConcurrentHashMap.compute()`-based `acquire()`/`release()` (never check-then-set), `currentOwner()` for display, `releaseAllOwnedBySession()` for stale-lock recovery, a 60s daemon cleanup sweep, and a `Clock`-injectable test constructor (same pattern as `SessionManager`).
+- Closed the stale-lock-recovery loop end to end: added a session-ended listener to `SessionManager` (Architecture.md §2.7's documented but previously unbuilt input), invoked on idle/absolute expiry (lazy and via the sweep) *and* explicit logout, wired in `VaultServiceImpl`'s constructor to `lockManager::releaseAllOwnedBySession`.
+- Wired `lockFile()`/`unlockFile()` into `VaultServiceImpl`, each guarded by `requireValidSession()` + a new `requireFileExists()` helper (reusing `VaultFileService.exists()`, a cheap no-disk-read check added this phase).
+- `listFiles()` now reports real lock state: `"LOCKED"`/`"UNLOCKED"` plus a `"you"`/`"another user"` hint that never discloses another session's identity.
+- Extended `ClientMain`'s demo to show alice locking a file, bob's lock/unlock attempts being correctly rejected, then alice unlocking.
+**Files Created:** `FileLock.java`, `LockManager.java` (server.lock); `LockManagerTest.java`, `VaultServiceLockIntegrationTest.java`, `VaultServiceLockConcurrencyTest.java` (tests).
+**Files Modified:** `VaultService.java` (added `lockFile`/`unlockFile`, removed the deferred design note), `VaultServiceImpl.java` (lock wiring, `toDto` now takes the caller's session), `SessionManager.java` (session-ended listener), `VaultFileService.java` (added `exists()`), `ClientMain.java`, `ServerMain.java`; `API-spec.md` (finalized lockFile contract, removed `LockResult` DTO), `Security.md` §4/§8/§11, `Testing.md` §5, `Decision.md`/`Backend.md` untouched (ADR-004/ADR-005 already described exactly what got built).
+**Tests Added:** 23 new (`LockManagerTest` ×10, `VaultServiceLockIntegrationTest` ×9 including the OQ-09 confirmation, `VaultServiceLockConcurrencyTest` ×3 covering TEST-CONC-001/002/003).
+**Tests Passed:** All 61 tests in `authlock-server` (`./gradlew clean build`). **TEST-CONC-001 specifically re-run 4 separate times** (once in the full suite, three standalone `--rerun` invocations) — 30 rounds × 5 concurrent sessions each time, **exactly one winner every round, zero failures across 120+ total race rounds.** Manually verified against a live cross-process server: alice locks, bob's lock attempt → `FILE_LOCKED`, bob's unlock attempt → `LOCK_NOT_OWNED`, alice unlocks successfully.
+**Tests Failed:** None.
+**Known Issues:** None new.
+**Architecture Changes:** None — implements exactly the Lock Manager component and Session Manager → Lock Manager notification path already specified in Architecture.md §2.5/§2.7.
+**Security Changes:** SEC-009 (lock security) now fully implemented and tested, including the stale-lock-recovery path that was previously only designed on paper. `listFiles()`'s minimal-disclosure lock-owner hint ("you"/"another user") is now enforced in code, not just documented intent.
+**Open Decisions:** OQ-09, OQ-12, OQ-13 resolved this phase (see §7). OQ-04 additionally confirmed as correctly implemented (sessions and locks are both in-memory-only, as designed). Only OQ-02 (SLA, low priority), OQ-05 (encryption, hard blocker for Phase 6), OQ-06 (cloud provider, Phase 11), OQ-10 (at-rest encryption), and OQ-14 (developer-name discrepancy) remain open.
+**Next Steps:** Begin Phase 6 — Encryption. **This phase cannot start without first resolving OQ-05** (final key-management approach: RMI-over-TLS vs. application-layer AES-GCM key distribution vs. hybrid) — see Security.md §7 for the options and the standing recommendation (RMI-over-TLS as primary transport control, AES-GCM on payload as defense-in-depth/LO4 demonstration).
+**Blockers:** **OQ-05 must be explicitly confirmed (or a different option chosen) before writing any Phase 6 code** — this is the one genuine go/no-go decision point in the entire roadmap.
+
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 5 — Distributed Locking.** This is the project's core innovation (`auth` §3) and carries the strongest test-coverage expectation in the whole roadmap ([Testing.md](Testing.md) §3, TEST-CONC-001: an N-client concurrent lock race that must show exactly one winner across 20–50 repeated runs). Two Open Questions have working defaults Phase 5 will encode into real code — **OQ-12** (lock ownership per-session, not per-user) and **OQ-13** (lock timeout, default ~15 minutes) — neither blocks starting.
+The exact, recommended next action is: **resolve OQ-05, then begin [Implementation.md](Implementation.md) Phase 6 — Encryption.** Unlike every Open Question resolved so far, this one is flagged as a hard blocker (Implementation.md Phase 6 prerequisites) because it is a real architectural fork, not a value that can be quietly defaulted: RMI-over-TLS protects the whole channel (including credentials) with modest certificate-management overhead, while pure application-layer AES-GCM needs a key-distribution story of its own. The standing recommendation (Security.md §7) is **both** — RMI-over-TLS as the primary transport control, AES-GCM on file payloads as an explicit, defense-in-depth demonstration of Java's cryptography APIs (module LO4) — but this should be confirmed with the developer rather than silently locked in, given it is the project's one remaining security-critical design fork.
 
-No Open Question blocks Phase 5. OQ-05 must be resolved before Phase 6 specifically, not before continuing implementation generally. OQ-09 (locked-file read-only download) should be consciously decided during Phase 5, since that's the first point it becomes a real, reachable code path.
+No other Open Question blocks Phase 6. OQ-06 (cloud provider) only matters at Phase 11.

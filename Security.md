@@ -53,7 +53,7 @@
 |---|---|
 | `login()` | No prior authentication required (this *is* the authentication step). |
 | `logout()`, `listFiles()`, `uploadFile()` | Requires a valid, non-expired session token. |
-| `downloadFile()` | Requires a valid session token. Download of a file currently locked by another user: **Open Question OQ-09** — either (a) allowed read-only, or (b) blocked entirely. `auth` does not specify; default recommendation is (a) allow read-only download (locking protects writes, not reads), pending confirmation. |
+| `downloadFile()` | Requires a valid session token. **Resolved (Phase 5), closing OQ-09:** download of a file currently locked by another session is **allowed, read-only** — `downloadFile()` performs no lock check at all. A lock protects writes (`uploadFile`'s implicit "you must hold nothing to create a new file" aside — see PRD.md Future Enhancements for versioned/locked updates), not reads. Verified by `VaultServiceLockIntegrationTest.oq009_downloadByANonOwnerStillSucceedsWhileFileIsLocked`. |
 | `lockFile()` | Requires a valid session token; fails if the file is already locked by a different, non-expired session (FR-010). |
 | `unlockFile()` | Requires a valid session token **and** that the requesting session is the current lock owner (FR-009). A non-owner unlock attempt returns `LOCK_NOT_OWNED` and is audited as an authorization failure. |
 
@@ -112,13 +112,13 @@ There is a single authenticated-user authorization tier in scope (no admin/guest
 
 | Aspect | Design |
 |---|---|
-| **Who can acquire locks** | Any authenticated session, on any unlocked file, via `lockFile()`. |
-| **Lock ownership** | A lock record stores the owning session ID (not just user ID, so a user's second concurrent session does not implicitly share the lock — **Engineering Assumption**, flagged as **Open Question OQ-12**: should locks be owned per-session or per-user?). |
+| **Who can acquire locks** | Any authenticated session, on any unlocked file, via `lockFile()`. A session re-locking a file it already holds succeeds idempotently rather than erroring. |
+| **Lock ownership** | **Resolved (Phase 5), closing OQ-12:** a lock record stores the owning **session** ID, not user ID — a user's second concurrent session does not implicitly share a lock held by their first session. This falls out naturally from `LockManager` using the same session-token identity `SessionManager` already established (Backend.md §2.4). |
 | **Lock release** | Only the owning session may call `unlockFile()` successfully (FR-009); the server verifies ownership before releasing. |
-| **Lock timeout** | Every lock has a server-enforced maximum hold duration (**Recommendation:** e.g., 15 minutes, configurable — **Open Question OQ-13** for the final value) after which it is eligible for automatic release. |
-| **Stale lock recovery** | If a session holding a lock expires or disconnects (e.g., client crash) without unlocking, the server's session-cleanup sweep (§5) also releases any locks owned by that expired session, preventing permanent denial of service. |
-| **Concurrent requests** | Lock acquisition is implemented as a single atomic operation (e.g., `ConcurrentHashMap.putIfAbsent` or an explicit per-file mutex guarding a check-and-set), never a separate check-then-set across two steps, to close the race window. |
-| **Race-condition prevention** | See [TRD.md](TRD.md) §3 "Synchronization" and [Testing.md](Testing.md) Concurrency Test — this is validated by an explicit multi-client concurrent-lock test that must show exactly one winner every run. |
+| **Lock timeout** | **Resolved (Phase 5), closing OQ-13:** every lock has a fixed 15-minute maximum hold duration (`LockManager.LOCK_TIMEOUT`) — not sliding/renewed by activity — after which it is eligible for automatic reclamation. |
+| **Stale lock recovery** | If a session holding a lock expires (idle/absolute timeout) or is explicitly logged out, `SessionManager`'s session-ended listener immediately notifies `LockManager.releaseAllOwnedBySession`, releasing every lock that session held — no need to wait for the lock's own 15-minute timeout. A lock is also transparently treated as unlocked the moment it passes its own deadline, even before the periodic cleanup sweep physically removes it, and independently swept every 60s. |
+| **Concurrent requests** | Lock acquisition is a single atomic `ConcurrentHashMap.compute()` call (not `putIfAbsent` alone, since it also has to atomically reclaim an expired lock in the same step) — never a separate check-then-set across two steps, closing the race window. See `LockManager.acquire()`. |
+| **Race-condition prevention** | See [TRD.md](TRD.md) §3 "Synchronization" and [Testing.md](Testing.md) §3 Concurrency Test. **Validated:** TEST-CONC-001, a 5-client real-thread race over real RMI, repeated 30 rounds per run and re-run several times during development — exactly one winner every single round, with zero failures observed. |
 
 ---
 
@@ -181,7 +181,7 @@ The following are explicitly **not finalized** and must be resolved before imple
 
 - **OQ-05:** Final encryption key-management approach (pre-shared key vs. RMI-over-TLS vs. hybrid).
 - ~~OQ-08~~ **Resolved (Phase 3):** 30-minute sliding idle timeout + 8-hour absolute max lifetime.
-- **OQ-09:** Whether locked files may still be downloaded read-only by non-owners.
+- ~~OQ-09~~ **Resolved (Phase 5):** locked files remain downloadable read-only by non-owners.
 - **OQ-10:** Whether at-rest encryption is implemented in this coursework scope.
-- **OQ-12:** Whether locks are owned per-session or per-user.
-- **OQ-13:** Final lock timeout duration.
+- ~~OQ-12~~ **Resolved (Phase 5):** locks are owned per-session.
+- ~~OQ-13~~ **Resolved (Phase 5):** 15-minute fixed lock timeout.

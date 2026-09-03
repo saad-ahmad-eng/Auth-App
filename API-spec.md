@@ -78,26 +78,26 @@ The complete remote contract exposed by the server is a single interface, `Vault
 | **Return type** | `FileContent` DTO: `{ fileBytes: byte[], iv: byte[], checksum: String }` |
 | **Exceptions** | `RemoteException`; `INVALID_SESSION`; `FILE_NOT_FOUND`; `DOWNLOAD_FAILED` |
 | **Authentication requirement** | Valid session token. |
-| **Authorization requirement** | Any authenticated user may download (per default resolution of Open Question OQ-09 — locked files remain downloadable read-only unless OQ-09 is finalized otherwise). |
+| **Authorization requirement** | Any authenticated user may download — **resolved (Phase 5), closing OQ-09:** locked files remain downloadable read-only, no lock check performed. |
 | **Side effects** | None (read-only). |
 | **Audit event** | `DOWNLOAD` (`SUCCESS`/`FAILURE`) — FR-011 |
-| **Concurrency behavior** | Safe under concurrent downloads, including concurrent with an in-progress upload of a *different* file; concurrent with a lock held by another session (read is not blocked by a write lock, per OQ-09 default). |
+| **Concurrency behavior** | Safe under concurrent downloads, including concurrent with an in-progress upload of a *different* file; concurrent with a lock held by another session (read is not blocked by a write lock). |
 | **Failure behavior** | Invalid session → `INVALID_SESSION`; unknown `fileId` → `FILE_NOT_FOUND`; read/integrity error → `DOWNLOAD_FAILED`. |
 
-### `lockFile(sessionToken, fileId) → LockResult`
+### `lockFile(sessionToken, fileId) → void`
 
 | Aspect | Detail |
 |---|---|
 | **Purpose** | Acquire an exclusive lock on a file before editing (FR-008). |
 | **Parameters** | `sessionToken: String`, `fileId: String` |
-| **Return type** | `LockResult` DTO: `{ granted: boolean, ownerSessionHint: String? }` |
-| **Exceptions** | `RemoteException`; `INVALID_SESSION`; `FILE_NOT_FOUND`; application error `FILE_LOCKED` (or a `granted:false` result — see note) |
+| **Return type** | `void` — success means the caller now holds the lock |
+| **Exceptions** | `RemoteException`; `INVALID_SESSION`; `FILE_NOT_FOUND`; `FILE_LOCKED` |
 | **Authentication requirement** | Valid session token. |
 | **Authorization requirement** | Any authenticated user may attempt to lock any unlocked file. |
-| **Side effects** | On success, creates a `FileLock` record owned by the caller's session. |
+| **Side effects** | On success, creates a `FileLock` record owned by the caller's session. A session re-locking a file it already holds succeeds idempotently (no error) rather than throwing `FILE_LOCKED` against itself — Derived Decision, resolved in Implementation Phase 5. |
 | **Audit event** | `LOCK` (`SUCCESS`/`FAILURE`) — FR-011 |
-| **Concurrency behavior** | Atomic acquisition (Backend.md §3) — exactly one concurrent caller for the same `fileId` succeeds (FR-010). |
-| **Failure behavior** | Invalid session → `INVALID_SESSION`; unknown file → `FILE_NOT_FOUND`; already locked by another session → `FILE_LOCKED`. *(Design note: `FILE_LOCKED` may be modeled either as a thrown application exception or as `granted:false` in the returned DTO — final choice deferred to implementation; either satisfies this contract as long as it is used consistently.)* |
+| **Concurrency behavior** | Atomic acquisition (Backend.md §3) — exactly one concurrent caller for the same `fileId` succeeds (FR-010, validated by TEST-CONC-001). |
+| **Failure behavior** | Invalid session → `INVALID_SESSION`; unknown file → `FILE_NOT_FOUND`; already locked by a different, still-live session → `FILE_LOCKED`. *(Resolved Implementation Phase 5: contention is reported by throwing `FILE_LOCKED`, not by a `granted:false` DTO field — this keeps every `VaultService` method using the same exception-based error model, so client code needs only one catch block, not a special case for locking. No `LockResult` DTO exists in the final interface.)* |
 
 ### `unlockFile(sessionToken, fileId) → void`
 
@@ -132,7 +132,7 @@ All DTOs crossing the RMI boundary implement `Serializable` with a declared `ser
 | `createdAt` | `long`/`Instant`-equivalent | |
 | `modifiedAt` | `long`/`Instant`-equivalent | |
 | `lockState` | `String` (`UNLOCKED` / `LOCKED`) | Denormalized view — Lock Manager remains source of truth (Backend.md §2.3). |
-| `lockOwnerHint` | `String?` | Optional, for UI display (e.g., "locked by another user") — must not leak sensitive identity beyond what's appropriate; **Open Question:** display username or a generic "locked by another user"? Default: generic, to avoid unnecessary information disclosure. |
+| `lockOwnerHint` | `String?` | **Resolved (Phase 5):** `"you"` if the requesting session holds the lock, `"another user"` if held by someone else, `null` if unlocked — never a raw session token or another user's identity (minimal-disclosure). |
 
 ### `FileContent` (response, from `downloadFile`)
 | Field | Type | Notes |
@@ -141,11 +141,7 @@ All DTOs crossing the RMI boundary implement `Serializable` with a declared `ser
 | `iv` | `byte[]` | Nonce for AES-GCM, if applicable. |
 | `checksum` | `String` | For client-side integrity verification after decryption. |
 
-### `LockResult` (response, from `lockFile`)
-| Field | Type | Notes |
-|---|---|---|
-| `granted` | `boolean` | |
-| `ownerSessionHint` | `String?` | Present when `granted=false`; generic, not the raw token (SEC-003). |
+*(No `LockResult` DTO — `lockFile` reports contention by throwing `FILE_LOCKED`, per its Resolved design note above. `FileMetadata.lockOwnerHint`, above, already carries the display-facing "you"/"another user" hint for locked files shown in `listFiles()`.)*
 
 ### Session information (returned implicitly as the `sessionToken` string; no richer session DTO is exposed to the client — the client only ever needs the opaque token, per SEC-003 minimal-disclosure principle).
 

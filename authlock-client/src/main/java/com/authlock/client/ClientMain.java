@@ -2,6 +2,7 @@ package com.authlock.client;
 
 import com.authlock.client.rmi.RmiConnection;
 import com.authlock.client.rmi.ServerUnavailableException;
+import com.authlock.common.ErrorCode;
 import com.authlock.common.FileContent;
 import com.authlock.common.FileMetadata;
 import com.authlock.common.VaultService;
@@ -16,13 +17,14 @@ import java.util.List;
  * Console entry point for the AuthLock client.
  *
  * <p>Implementation Phase 2 scope: connects and calls
- * {@link VaultService#ping()} (TEST-INT-001). <b>Phase 3 scope (this
- * addition):</b> also demonstrates {@code login()}/{@code logout()} against
- * one of the seeded demo accounts (Context.md OQ-01), console-only, to
- * manually verify the RMI round trip for real credentials/error handling
- * before Phase 8 replaces this whole class with the Swing login screen and
- * dashboard (UIUX.md §1–§2) — at that point {@code login}/{@code logout}
- * calls move into UI event handlers instead of running unconditionally here.
+ * {@link VaultService#ping()} (TEST-INT-001). Phase 3: {@code login()}/
+ * {@code logout()}. Phase 4: {@code uploadFile}/{@code listFiles}/
+ * {@code downloadFile}. <b>Phase 5 (this addition):</b> also demonstrates
+ * {@code lockFile}/{@code unlockFile} contention between two seeded
+ * accounts. Console-only, to manually verify each RMI round trip before
+ * Phase 8 replaces this whole class with the Swing login screen and
+ * dashboard (UIUX.md §1–§2) — at that point these calls move into UI event
+ * handlers instead of running unconditionally here.
  *
  * <p>Host defaults to {@code localhost}; override with
  * {@code -Dauthlock.server.host=<host>} (e.g. a cloud VM's public IP in
@@ -43,7 +45,7 @@ public final class ClientMain {
             String pingResponse = service.ping();
             System.out.println("Server responded: " + pingResponse);
 
-            demoLoginLogout(service);
+            runDemo(service);
         } catch (ServerUnavailableException e) {
             System.err.println("Server unavailable: " + e.getMessage());
             System.exit(1);
@@ -54,26 +56,30 @@ public final class ClientMain {
     }
 
     /**
-     * Phase 3/4 demo only: logs in as the seeded "alice" account, uploads a
-     * small file, lists the vault, downloads the file back and verifies it
-     * round-tripped byte-identical, then logs out. Not part of the eventual
-     * Swing UI flow (Phase 8 replaces this with real event handlers).
+     * Phase 3–5 demo only: logs in as both seeded accounts, uploads and
+     * round-trips a file as alice, then demonstrates lock contention between
+     * alice and bob. Not part of the eventual Swing UI flow.
      */
-    private static void demoLoginLogout(VaultService service) throws RemoteException {
+    private static void runDemo(VaultService service) throws RemoteException {
+        String aliceToken = null;
+        String bobToken = null;
         try {
-            String token = service.login("alice", "AliceP@ss1");
-            System.out.println("Login succeeded. Session token: " + token);
+            aliceToken = service.login("alice", "AliceP@ss1");
+            System.out.println("alice logged in. Session token: " + aliceToken);
+            bobToken = service.login("bob", "BobP@ss1");
+            System.out.println("bob logged in. Session token: " + bobToken);
 
-            demoFileRoundTrip(service, token);
-
-            service.logout(token);
-            System.out.println("Logout succeeded.");
+            String fileId = demoFileRoundTrip(service, aliceToken);
+            demoLocking(service, aliceToken, bobToken, fileId);
         } catch (VaultServiceException e) {
             System.out.println("Demo failed: " + e.getErrorCode() + " - " + e.getMessage());
+        } finally {
+            logoutQuietly(service, "alice", aliceToken);
+            logoutQuietly(service, "bob", bobToken);
         }
     }
 
-    private static void demoFileRoundTrip(VaultService service, String token)
+    private static String demoFileRoundTrip(VaultService service, String token)
             throws RemoteException, VaultServiceException {
         byte[] content = "Hello from the AuthLock Phase 4 demo!".getBytes(StandardCharsets.UTF_8);
 
@@ -87,6 +93,46 @@ public final class ClientMain {
         boolean matches = Arrays.equals(content, downloaded.fileBytes());
         System.out.println("Downloaded content matches upload: " + matches
                 + " (checksum=" + downloaded.checksum() + ")");
+        return fileId;
+    }
+
+    private static void demoLocking(VaultService service, String aliceToken, String bobToken, String fileId)
+            throws RemoteException, VaultServiceException {
+        service.lockFile(aliceToken, fileId);
+        System.out.println("alice locked " + fileId + ".");
+
+        try {
+            service.lockFile(bobToken, fileId);
+            System.out.println("UNEXPECTED: bob was also able to lock the file!");
+        } catch (VaultServiceException e) {
+            System.out.println("bob's lock attempt correctly rejected: " + e.getErrorCode());
+        }
+
+        try {
+            service.unlockFile(bobToken, fileId);
+            System.out.println("UNEXPECTED: bob was able to unlock alice's lock!");
+        } catch (VaultServiceException e) {
+            if (e.getErrorCode() == ErrorCode.LOCK_NOT_OWNED) {
+                System.out.println("bob's unlock attempt correctly rejected: " + e.getErrorCode());
+            } else {
+                throw e;
+            }
+        }
+
+        service.unlockFile(aliceToken, fileId);
+        System.out.println("alice unlocked " + fileId + ". File is available again.");
+    }
+
+    private static void logoutQuietly(VaultService service, String label, String token) {
+        if (token == null) {
+            return;
+        }
+        try {
+            service.logout(token);
+            System.out.println(label + " logged out.");
+        } catch (Exception e) {
+            System.out.println(label + " logout failed: " + e.getMessage());
+        }
     }
 
     private static String resolveHost(String[] args) {

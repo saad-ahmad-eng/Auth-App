@@ -12,8 +12,8 @@ import java.util.List;
  * is completed, per Development-rules.md §1 ("implement only the requested
  * phase"): {@link #ping()} (Phase 2); {@link #login} / {@link #logout}
  * (Phase 3); {@link #listFiles}, {@link #uploadFile}, {@link #downloadFile}
- * (Phase 4, this addition). {@code lockFile}, {@code unlockFile} (Phase 5)
- * follow.
+ * (Phase 4); {@link #lockFile}, {@link #unlockFile} (Phase 5, this addition
+ * — the project's core distributed-locking feature, `auth` §3).
  *
  * <p>Every method declares {@code throws RemoteException} per TRD.md §3.
  * Application-level failures (API-spec.md §3 Error Model) are surfaced as
@@ -60,9 +60,6 @@ public interface VaultService extends Remote {
      * Retrieves the vault's file listing with metadata and lock state
      * (API-spec.md {@code listFiles}, FR-005). Read-only.
      *
-     * <p>Phase 4 note: every {@link FileMetadata#lockState()} is currently
-     * {@code "UNLOCKED"} — real lock state arrives in Phase 5.
-     *
      * @throws VaultServiceException with {@link ErrorCode#INVALID_SESSION} if the token is invalid
      */
     List<FileMetadata> listFiles(String sessionToken) throws RemoteException, VaultServiceException;
@@ -89,4 +86,32 @@ public interface VaultService extends Remote {
      *                                {@link ErrorCode#DOWNLOAD_FAILED} on a read/integrity error
      */
     FileContent downloadFile(String sessionToken, String fileId) throws RemoteException, VaultServiceException;
+
+    /**
+     * Acquires an exclusive lock on a file before editing (API-spec.md
+     * {@code lockFile}, FR-008, FR-010).
+     *
+     * <p><b>Derived Decision</b> (API-spec.md §1's design note, now
+     * finalized in Phase 5): unlike a {@code LockResult} DTO, contention is
+     * reported via a thrown {@link VaultServiceException}, exactly like
+     * every other application-level failure in this interface — one
+     * consistent error-handling pattern for the client, rather than
+     * {@code lockFile} being the sole method that returns a "maybe-failure"
+     * result object.
+     *
+     * @throws VaultServiceException with {@link ErrorCode#INVALID_SESSION} if the token is invalid,
+     *                                {@link ErrorCode#FILE_NOT_FOUND} if the file ID is unknown, or
+     *                                {@link ErrorCode#FILE_LOCKED} if another live session already holds it
+     */
+    void lockFile(String sessionToken, String fileId) throws RemoteException, VaultServiceException;
+
+    /**
+     * Releases a lock the caller holds (API-spec.md {@code unlockFile}, FR-009).
+     *
+     * @throws VaultServiceException with {@link ErrorCode#INVALID_SESSION} if the token is invalid,
+     *                                {@link ErrorCode#FILE_NOT_FOUND} if the file ID is unknown, or
+     *                                {@link ErrorCode#LOCK_NOT_OWNED} if the caller's session is not
+     *                                the current lock owner (including "not locked at all")
+     */
+    void unlockFile(String sessionToken, String fileId) throws RemoteException, VaultServiceException;
 }

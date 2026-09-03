@@ -106,6 +106,15 @@ public final class VaultFileService {
         return List.copyOf(index.values());
     }
 
+    /**
+     * Cheap existence check (no disk read) — used by {@code lockFile}/
+     * {@code unlockFile} (Phase 5) to reject an unknown {@code fileId}
+     * without paying the cost of reading its content.
+     */
+    public boolean exists(String fileId) {
+        return index.containsKey(fileId);
+    }
+
     /** Thrown by {@link #retrieve} when stored content no longer matches its recorded checksum. */
     public static final class ChecksumMismatchException extends IOException {
         public ChecksumMismatchException(String fileId) {
