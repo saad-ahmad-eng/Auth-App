@@ -26,6 +26,21 @@ import java.nio.file.Path;
  * lookup call — it sets the standard JSSE system properties
  * ({@code javax.net.ssl.keyStore} etc.) that {@code SslRMIServerSocketFactory}/
  * {@code SslRMIClientSocketFactory} read via {@code SSLContext.getDefault()}.
+ *
+ * <p><b>Phase 11 addition:</b> the generated certificate's Subject
+ * Alternative Names default to {@code dns:localhost,ip:127.0.0.1} —
+ * correct for local development, but a real remote client verifying TLS
+ * against a cloud VM's public IP/hostname needs that address in the SAN
+ * too (RMI's stub-hostname pitfall already fixed in {@code ServerMain} has
+ * a TLS-certificate equivalent — Architecture.md §3, Security.md §7 both
+ * flagged this as an explicit, not-yet-done Phase 11 task before now).
+ * Set {@code -Dauthlock.tls.extraSan=<entry>[,<entry>...]} (each entry a
+ * {@code keytool}-style {@code dns:<host>} or {@code ip:<addr>}) before the
+ * <i>first</i> run on a given keystore path — the certificate is generated
+ * once and reused thereafter, so this only takes effect while the file
+ * doesn't exist yet (delete an existing keystore to regenerate with a
+ * changed SAN). Unset (the default, and every existing local/test usage)
+ * behaves exactly as before this addition.
  */
 public final class DevTlsSetup {
 
@@ -72,7 +87,7 @@ public final class DevTlsSetup {
                 "-storetype", "PKCS12",
                 "-storepass", STORE_PASSWORD,
                 "-dname", "CN=localhost, OU=AuthLock Coursework, O=AuthLock, C=US",
-                "-ext", "SAN=dns:localhost,ip:127.0.0.1"
+                "-ext", "SAN=" + subjectAlternativeNames()
         );
         processBuilder.redirectErrorStream(true);
         Process process = processBuilder.start();
@@ -83,5 +98,17 @@ public final class DevTlsSetup {
             throw new IOException("keytool failed to generate the AuthLock dev TLS certificate (exit "
                     + exitCode + "): " + output);
         }
+    }
+
+    /**
+     * Base SAN entries ({@code dns:localhost,ip:127.0.0.1}), plus whatever
+     * {@code -Dauthlock.tls.extraSan} contributes (see class Javadoc) — e.g.
+     * a cloud VM's public IP so a genuinely remote client's TLS handshake
+     * can verify the certificate against the host it actually connected to.
+     */
+    private static String subjectAlternativeNames() {
+        String base = "dns:localhost,ip:127.0.0.1";
+        String extra = System.getProperty("authlock.tls.extraSan", "").trim();
+        return extra.isEmpty() ? base : base + "," + extra;
     }
 }
