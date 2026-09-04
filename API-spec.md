@@ -128,7 +128,7 @@ All DTOs crossing the RMI boundary implement `Serializable` with a declared `ser
 | `fileId` | `String` | |
 | `filename` | `String` | Original display name. |
 | `size` | `long` | |
-| `owner` | `String` | `userId` or display name. |
+| `owner` | `String` | **Resolved:** the uploader's username (human-readable display value, resolved from the internal `userId` at upload time — Context.md Phase 8), not the raw internal `userId`. |
 | `createdAt` | `long`/`Instant`-equivalent | |
 | `modifiedAt` | `long`/`Instant`-equivalent | |
 | `lockState` | `String` (`UNLOCKED` / `LOCKED`) | Denormalized view — Lock Manager remains source of truth (Backend.md §2.3). |

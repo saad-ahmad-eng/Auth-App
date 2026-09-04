@@ -21,7 +21,7 @@ output "next_steps" {
          scp -i /path/to/${var.key_name}.pem -r "AuthLock Project" ubuntu@${aws_instance.authlock_server.public_ip}:/opt/authlock/app
     3. SSH in and run the app-level setup script:
          ssh -i /path/to/${var.key_name}.pem ubuntu@${aws_instance.authlock_server.public_ip}
-         sudo /opt/authlock/scripts/setup-authlock.sh
+         sudo /opt/authlock/app/scripts/setup-authlock.sh
     4. From your OWN machine, copy the two files setup-authlock.sh prints the paths to
        (authlock-shared.key and certs/authlock-dev.p12) down from the VM — the client
        needs its own copy of both:

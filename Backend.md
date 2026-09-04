@@ -56,7 +56,7 @@ These are **logical models** — the authoritative field list each entity must c
 | `fileId` | Server-generated internal identifier — used for storage path, never the client-supplied name (SEC-006). |
 | `originalFilename` | Client-supplied display name, treated as untrusted metadata only. |
 | `storedFilename` / `storagePath` | Internal path derived from `fileId`, not from `originalFilename`. |
-| `owner` | `userId` of the uploader. |
+| `owner` | The uploader's **username** (human-readable display value — resolved from the stable internal `userId` at upload time; see `VaultServiceImpl.uploadFile`'s Owner-column fix, Context.md Phase 8). |
 | `size` | Byte size of the stored (ciphertext, if applicable) content. |
 | `checksum` | Integrity hash of the plaintext content, per [Security.md](Security.md) §6. |
 | `createdAt` | Upload timestamp. |

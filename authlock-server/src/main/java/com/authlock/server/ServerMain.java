@@ -28,11 +28,14 @@ import java.rmi.server.ExportException;
  * <b>The {@code java.rmi.server.hostname} default above is not just
  * cosmetic under TLS</b> — without it, RMI embeds the machine's actual
  * detected LAN IP in exported stubs, and the dev certificate's Subject
- * Alternative Names (only {@code localhost}/{@code 127.0.0.1}) then fails
- * TLS hostname verification against that IP. Phase 11 cloud deployment will
- * need to regenerate the dev certificate with the VM's public IP/hostname
- * in its SAN (or use a properly issued certificate) — tracked as a Phase 11
- * task, not solved here.
+ * Alternative Names (only {@code localhost}/{@code 127.0.0.1} by default)
+ * then fails TLS hostname verification against that IP. <b>Resolved in
+ * Phase 11:</b> {@link DevTlsSetup} accepts {@code -Dauthlock.tls.extraSan}
+ * to extend the certificate's SAN with a real deployment address —
+ * {@code scripts/provision-vm.sh}/{@code scripts/setup-authlock.sh} set both
+ * this and {@code java.rmi.server.hostname} together from the VM's
+ * discovered public address, so a cloud deployment needs no manual
+ * certificate regeneration step.
  */
 public final class ServerMain {
 
@@ -62,12 +65,11 @@ public final class ServerMain {
             System.out.println("  Transport     : " + (tlsEnabled
                     ? "RMI-over-TLS (dev self-signed cert — see DevTlsSetup)"
                     : "plaintext RMI (authlock.tls.enabled=false)"));
-            System.out.println("Implemented so far: ping() (Phase 2), login()/logout() (Phase 3),");
-            System.out.println("  listFiles()/uploadFile()/downloadFile() (Phase 4),");
-            System.out.println("  lockFile()/unlockFile() (Phase 5),");
-            System.out.println("  AES-256-GCM upload/download encryption + RMI-over-TLS (Phase 6),");
-            System.out.println("  audit logging to audit.log (Phase 7).");
-            System.out.println("See Implementation.md Phase 8+ to continue.");
+            System.out.println("Full VaultService surface: ping, login/logout, listFiles,");
+            System.out.println("  uploadFile/downloadFile, lockFile/unlockFile — all AES-256-GCM +");
+            System.out.println("  RMI-over-TLS encrypted, session-authorized, and audit-logged.");
+            System.out.println("See Context.md for full project status (Phases 1-10 complete;");
+            System.out.println("  11-12 blocked only on a real AWS deployment).");
         } catch (Exception e) {
             System.err.println("Failed to start AuthLock server: " + e.getMessage());
             e.printStackTrace();

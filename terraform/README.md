@@ -56,7 +56,7 @@ more step from you:
 scp -i /path/to/<key>.pem -r "AuthLock Project" ubuntu@<public_ip>:/opt/authlock/app
 
 ssh -i /path/to/<key>.pem ubuntu@<public_ip>
-sudo /opt/authlock/scripts/setup-authlock.sh
+sudo /opt/authlock/app/scripts/setup-authlock.sh
 ```
 
 `setup-authlock.sh` builds the server, discovers the VM's public

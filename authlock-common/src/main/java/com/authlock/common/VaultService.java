@@ -70,8 +70,9 @@ public interface VaultService extends Remote {
      *
      * @param filename  client-supplied display name — untrusted metadata
      *                  only, never used to construct a storage path (SEC-006)
-     * @param fileBytes file content (plaintext until Phase 6 applies encryption)
-     * @param iv        AES-GCM nonce; pass an empty array until Phase 6
+     * @param fileBytes AES-256-GCM ciphertext of the file content (Phase 6 — see
+     *                   {@link com.authlock.common.crypto.AesGcmCipher})
+     * @param iv        the AES-GCM nonce {@code fileBytes} was encrypted with — mandatory since Phase 6
      * @return the server-generated file ID
      * @throws VaultServiceException with {@link ErrorCode#INVALID_SESSION} if the token is invalid,
      *                                or {@link ErrorCode#UPLOAD_FAILED} on a storage/validation error

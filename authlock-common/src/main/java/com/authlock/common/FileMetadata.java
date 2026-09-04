@@ -7,21 +7,21 @@ import java.time.Instant;
  * Response DTO for {@link VaultService#listFiles}, per API-spec.md §2 and
  * Backend.md §2.3.
  *
- * <p><b>Phase 4 scope:</b> {@code lockState} is always {@code "UNLOCKED"}
- * and {@code lockOwnerHint} is always {@code null} — there is no Lock
- * Manager yet (Implementation.md Phase 5). Both become meaningful once
- * Phase 5 wires real lock state into this DTO's construction in
- * {@code VaultServiceImpl}.
+ * <p>{@code lockState}/{@code lockOwnerHint} reflect real, live
+ * {@code LockManager} state as of Phase 5 (see {@code VaultServiceImpl.toDto}).
  *
  * @param fileId        server-generated internal identifier
  * @param filename      original, client-supplied display name — untrusted
  *                      metadata only, never used as a storage path (SEC-006)
  * @param size           byte size of the stored content
- * @param owner          userId of the uploader
+ * @param owner          the uploader's <b>username</b> (human-readable display value,
+ *                       resolved from the stable internal userId at upload time — see
+ *                       {@code VaultServiceImpl.uploadFile}'s Owner-column fix, Phase 8/Context.md)
  * @param createdAt      upload timestamp
  * @param modifiedAt     last successful update timestamp
- * @param lockState      {@code "UNLOCKED"} or {@code "LOCKED"} (Phase 4: always UNLOCKED)
- * @param lockOwnerHint  generic hint when locked, never a raw session token (Phase 4: always null)
+ * @param lockState      {@code "UNLOCKED"} or {@code "LOCKED"}
+ * @param lockOwnerHint  {@code "you"}/{@code "another user"} when locked, {@code null} when
+ *                       unlocked — never a raw session token or other identity (minimal disclosure)
  */
 public record FileMetadata(
         String fileId,

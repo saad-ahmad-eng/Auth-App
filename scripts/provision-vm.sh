@@ -45,7 +45,6 @@
 set -euo pipefail
 
 APP_DIR="${AUTHLOCK_APP_DIR:-/opt/authlock/app}"
-SCRIPTS_DIR="/opt/authlock/scripts"
 LOG_FILE="/var/log/authlock-provision.log"
 MARKER_FILE="/opt/authlock/.provisioned"
 SERVICE_USER="authlock"
@@ -89,16 +88,18 @@ create_service_user() {
         log "Creating service account '$SERVICE_USER'..."
         useradd --system --create-home --home-dir /opt/authlock --shell /usr/sbin/nologin "$SERVICE_USER"
     fi
-    mkdir -p "$APP_DIR" "$SCRIPTS_DIR"
-    # setup-authlock.sh needs to be reachable on the VM regardless of how
-    # this script itself was invoked (user_data leaves no file on disk by
-    # default) — copy ourselves and our sibling script into place.
-    SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [ -f "$SELF_DIR/setup-authlock.sh" ]; then
-        cp "$SELF_DIR/setup-authlock.sh" "$SCRIPTS_DIR/setup-authlock.sh"
-        chmod +x "$SCRIPTS_DIR/setup-authlock.sh"
-    fi
-    cp "${BASH_SOURCE[0]}" "$SCRIPTS_DIR/provision-vm.sh" 2>/dev/null || true
+    mkdir -p "$APP_DIR"
+    # Deliberately NOT copying setup-authlock.sh anywhere here: when this
+    # script runs the way it's actually meant to (Terraform's `user_data`,
+    # or a bare `curl | sudo bash` on any VM), there is no sibling file on
+    # disk to copy — only this script's own content exists at that point.
+    # setup-authlock.sh instead always ends up at $APP_DIR/scripts/ as a
+    # natural side effect of the AuthLock *source* landing at $APP_DIR,
+    # whether that's this script's own maybe_auto_deploy() extracting a
+    # tarball, or an operator's `scp -r` — see that function and
+    # print_next_steps() below, both of which reference
+    # $APP_DIR/scripts/setup-authlock.sh accordingly, never a separate
+    # scripts/ directory outside the project tree.
     chown -R "$SERVICE_USER":"$SERVICE_USER" /opt/authlock
 }
 
@@ -210,7 +211,13 @@ maybe_auto_deploy() {
         || tar -xzf "$tmp_tar" -C "$APP_DIR"
     chown -R "$SERVICE_USER":"$SERVICE_USER" "$APP_DIR"
     log "Source extracted to $APP_DIR — handing off to setup-authlock.sh."
-    "$SCRIPTS_DIR/setup-authlock.sh" || log "WARNING: setup-authlock.sh reported an error — check $LOG_FILE and finish manually."
+    local setup_script="$APP_DIR/scripts/setup-authlock.sh"
+    if [ ! -f "$setup_script" ]; then
+        log "WARNING: $setup_script not found in the extracted source — AUTHLOCK_SOURCE_URL's tarball may not include scripts/. Finish deployment manually."
+        return
+    fi
+    chmod +x "$setup_script"
+    "$setup_script" || log "WARNING: setup-authlock.sh reported an error — check $LOG_FILE and finish manually."
 }
 
 print_next_steps() {
@@ -227,7 +234,7 @@ print_next_steps() {
  If AUTHLOCK_SOURCE_URL was not set, the app layer is NOT deployed yet.
  Finish it with:
    1. From your machine: scp -r "AuthLock Project" <user>@${ip}:/opt/authlock/app
-   2. On this VM:        sudo /opt/authlock/scripts/setup-authlock.sh
+   2. On this VM:        sudo /opt/authlock/app/scripts/setup-authlock.sh
  Full instructions: terraform/README.md in the project.
 =====================================================================
 
