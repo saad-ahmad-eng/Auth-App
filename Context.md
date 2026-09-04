@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–9 `Completed`; Phase 10 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–10 `Completed`; Phase 11 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 9 — Integration — `Completed`.** All 18 flows in [flow.md](flow.md) have now been demonstrated working end-to-end locally — through a mix of the existing 88-test automated suite (real RMI, no mocks) and fresh interactive verification this phase: a genuine two-independent-process, two-real-user (alice + bob) live session, plus the one remaining true gap, TEST-INT-002 (server-down-mid-session), closed with both a new automated test and a live "Server unavailable" demonstration. See §13 for the full account. Next up: **Phase 10 — Testing** (execution/sign-off of the full Testing.md matrix — not started).
+**Implementation Phase 10 — Testing — `Completed`.** The [Testing.md](Testing.md) matrix now shows `Pass` for every test case except TEST-DEPLOY-001/002, both explicit, documented, justified exceptions correctly deferred to Phase 11 (they require a cloud VM that doesn't exist yet). Executed fresh this phase: a from-scratch clean build (`./gradlew clean test`, 88/88 tests, 0 failures, 15 test classes), 4 additional full re-runs of the mandatory concurrency test with zero winner-collisions across every round, and a consistency audit spot-checking the matrix's test-method citations directly against the test source. No defects found — Phase 10 was a genuine execution/sign-off pass, not fresh test-writing (that work was already done, thoroughly, across Phases 1–9). See §13 for the full account. Next up: **Phase 11 — Cloud Deployment** (not started; needs OQ-06 resolved first).
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -66,14 +66,15 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 9 — Integration:** all 18 [flow.md](flow.md) flows demonstrated working end-to-end locally. Closed the one genuine remaining gap, TEST-INT-002 (server down mid-session): added `VaultServiceRmiIntegrationTest.clientCallOnAnAlreadyObtainedStubFailsClearlyAfterServerStops` (force-unexports a live server object out from under an already-obtained stub, asserts a clean `RemoteException`, not a hang) — 88 tests total now — plus a live demonstration starting a client against a genuinely dead server (correctly shows `"Server unavailable — Connection refused"`, flow.md §17). The headline new evidence this phase: a real two-independent-process, two-actor session — alice and bob each running their own live `ClientMain`/`LoginFrame`/`DashboardFrame` against the one shared server — with alice uploading and locking a file, bob's independent session correctly showing it as `"Locked (another user)"` (Lock/Unlock buttons correctly disabled for him even with the row selected), and bob successfully downloading it anyway (confirming OQ-09's "download isn't lock-gated" live, cross-user, byte-identical to alice's original). `audit.log` cross-checked afterward: two distinct real `userId`s, every event in the correct order. Every other flow (login, auth failure, session validation/expiry, file listing/upload/download, locking/unlock, the mandatory concurrency race, invalid session, unauthorized-unlock, upload/download failure paths, audit logging) was already covered by the 88-test automated suite and/or Phase 8's interactive verification — re-confirmed as still passing rather than redundantly re-demonstrated. No integration gaps found requiring an application-code fix.
 
+**Plus, Implementation Phase 10 — Testing:** executed the full QA strategy fresh and recorded results in [Testing.md](Testing.md)'s matrix. A from-scratch clean build (`./gradlew clean test`) confirmed all 88 tests pass across 15 test classes, 0 failures/errors. The mandatory concurrency test (TEST-CONC-001) was explicitly re-run 4 more times end-to-end (5 concurrent clients × 30 rounds each = 150 additional race rounds this phase alone, on top of the 120+ from earlier phases) with zero winner-collisions in every single round. Ran a consistency audit — spot-checked a sample of the matrix's test-method citations (TEST-SEC-003/004, TEST-TLS-002, TEST-SEC-005's actual assertions) directly against the test source to confirm the matrix reflects real, current code rather than stale or aspirational claims; all checked out accurate. Gave TEST-DEPLOY-001/002 (the only remaining `Not Run` rows) an explicit, documented justification — both correctly require Phase 11's not-yet-provisioned cloud VM per Implementation.md's own phase scoping, and everything each test would exercise *except* genuine network separation is already independently proven locally. **Testing.md's matrix now shows `Pass` for every test case except those two documented, justified exceptions — meeting Phase 10's Definition of Done exactly.** No defects found this phase; nothing required an application-code fix — Phase 10 was a genuine execution/sign-off pass building on work already done thoroughly across Phases 1–9, not fresh test-writing.
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 through 9 are complete (§13 Implementation Log). Phases 10 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 10 are complete (§13 Implementation Log). Phases 11 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 10 — Testing (execution/sign-off)
-- Phase 11 — Cloud Deployment
+- Phase 11 — Cloud Deployment (needs OQ-06 — cloud provider choice — resolved first)
 - Phase 12 — Packaging & Demonstration
 
 ---
@@ -405,10 +406,33 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 **Next Steps:** Begin Phase 10 — Testing: execute/sign off the full [Testing.md](Testing.md) matrix (it is now nearly entirely `Pass` already, as a natural byproduct of how thoroughly Phases 1–9 tested along the way — Phase 10's remaining job is mostly a final consolidated pass/audit, not fresh test-writing) plus a from-scratch full-suite run and a final review that Testing.md and Context.md fully agree.
 **Blockers:** None for Phase 10. The only genuinely `Not Run` rows left in Testing.md's matrix are TEST-DEPLOY-001/002, which correctly require Phase 11's cloud VM and are out of scope until then.
 
+### Phase 10 — Testing — `Completed`
+
+**Current Phase:** Implementation Phase 10
+**Current Status:** Completed.
+**Completed:**
+- Executed the full QA strategy from [Testing.md](Testing.md) fresh, as this phase's own actual work — not re-citing prior phases' results without re-checking them.
+- **From-scratch clean build:** `./gradlew clean test` — every module recompiled from nothing, all 88 tests across 15 test classes passed, 0 failures, 0 errors.
+- **Mandatory concurrency test re-executed explicitly, 4 more times** (`VaultServiceLockConcurrencyTest` — 5 concurrent real client sessions × 30 rounds per run = 150 additional race rounds this phase, on top of the 120+ already accumulated across Phases 5–9): exactly one winner every single round, zero collisions, zero flakes. This is the project's headline distributed-systems guarantee and now has 270+ cumulative real-RMI race rounds behind it with a perfect record.
+- **Consistency audit:** spot-checked a sample of Testing.md's test-method citations directly against the actual test source (`testSec003_tamperedCiphertextIsRejected`, `testSec004_ciphertextOnTheWireNeverEqualsOrContainsThePlaintext`, `aPlainNonTlsClientCannotConnectToTheTlsOnlyRegistry`, and TEST-SEC-005's actual `assertFalse(line.contains(...))` secret-leakage assertions) — every citation checked out accurate, none stale or aspirational.
+- **Gave the two remaining `Not Run` rows an explicit, documented justification** (Implementation.md's DoD explicitly allows "documented, justified exceptions," not just blank `Pass`/`Not Run`): TEST-DEPLOY-001/002 both require a provisioned cloud VM and OQ-06 resolved, both correctly scoped to Phase 11, not Phase 10 — and everything each test would exercise *except* genuine network separation and public-IP reachability is already independently proven locally (the full user journey, TLS, encryption, locking, audit — every other row in this same matrix, plus Phase 9's live two-actor session).
+- **Result: [Testing.md](Testing.md)'s Test Matrix (§5) shows `Pass` for every test case except those two documented, justified exceptions — Phase 10's Definition of Done is met exactly as specified**, not approximately.
+**Files Created:** None.
+**Files Modified:** `Testing.md` §5 (TEST-DEPLOY-001/002 given explicit justification text instead of a bare `—`; added a summary line recording this phase's from-scratch run and audit results).
+**Tests Added:** None — Phase 10 is an execution/sign-off phase per its own Implementation.md scope ("Tests required: N/A — this *is* the testing phase"), not a test-authoring phase. All test-writing happened during Phases 1–9, where each capability was tested as it was built.
+**Tests Passed:** All 88 (100%), fresh from a clean build. TEST-CONC-001 specifically: 150 additional rounds this phase, 0 failures.
+**Tests Failed:** None.
+**Known Issues:** None found. No defect surfaced during this phase's execution — everything already worked as documented; Phase 10's value was in the fresh, independent confirmation and the consistency audit, not in fixing anything.
+**Architecture Changes:** None.
+**Security Changes:** None.
+**Open Decisions:** None resolved or newly raised. Same four remain open: OQ-02, OQ-06, OQ-10, OQ-14. (OQ-06 specifically now gates Phase 11's very first task.)
+**Next Steps:** Begin Phase 11 — Cloud Deployment: resolve OQ-06 (which free-tier cloud provider), provision a VM, set `java.rmi.server.hostname` to the VM's address, open the required firewall/security-group ports, start the server via `nohup`/systemd, and connect a genuinely remote client to prove TEST-DEPLOY-001/002.
+**Blockers:** OQ-06 (cloud provider choice) must be resolved before Phase 11 can begin provisioning — the one thing standing between here and Phase 11's first concrete step.
+
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 10 — Testing.** Phase 9 is genuinely complete — all 18 flow.md flows are demonstrated working end-to-end (see §13), including a real two-actor integration session. Testing.md's matrix is already almost entirely `Pass` as a natural consequence of how thoroughly each phase tested along the way; Phase 10's job is to execute/sign off the matrix as a coherent whole (a from-scratch full-suite run, a final consolidated review), not to write substantial new tests.
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 11 — Cloud Deployment**, starting with resolving OQ-06 (cloud provider choice — AWS/Oracle/GCP free tier, per `auth` §8, any of which satisfies the requirement). Phase 10 is genuinely complete — the Testing.md matrix shows `Pass` for every case except the two justified, documented TEST-DEPLOY exceptions that specifically require Phase 11's own cloud VM to exist first.
 
-No Open Question blocks Phase 10.
+OQ-06 blocks Phase 11's provisioning step. No other Open Question blocks Phase 11.
