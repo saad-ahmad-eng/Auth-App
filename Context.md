@@ -17,11 +17,11 @@
 
 ## 2. Current Status
 
-**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–8 `Completed`; Phase 9 `Not Started`.**
+**Status: `In Progress` — Documentation Phase `Completed`; Implementation Phases 1–9 `Completed`; Phase 10 `Not Started`.**
 
 ## 3. Current Phase
 
-**Implementation Phase 8 — Swing UI — `Completed`.** The login screen and dashboard (UIUX.md §1–§2) are fully implemented and have now been interactively verified end-to-end against a live server: connect → login → Dashboard → upload → lock → unlock → download → logout, plus the invalid-login and session-expiry error paths (TEST-UI-001/004), all confirmed with screenshots, an audit-log cross-check, and a SHA-256 file-integrity check. A real Owner-column usability bug found during this verification was diagnosed and fixed (`VaultServiceImpl.java`, `UserStore.java`) and the full 87-test suite re-confirmed green. See §13 for the full account. Next up: **Phase 9 — Integration** (not started).
+**Implementation Phase 9 — Integration — `Completed`.** All 18 flows in [flow.md](flow.md) have now been demonstrated working end-to-end locally — through a mix of the existing 88-test automated suite (real RMI, no mocks) and fresh interactive verification this phase: a genuine two-independent-process, two-real-user (alice + bob) live session, plus the one remaining true gap, TEST-INT-002 (server-down-mid-session), closed with both a new automated test and a live "Server unavailable" demonstration. See §13 for the full account. Next up: **Phase 10 — Testing** (execution/sign-off of the full Testing.md matrix — not started).
 
 The documentation package (§4) is finished and remains the source of truth. Implementation has now begun, following [Implementation.md](Implementation.md) phase-by-phase, with [Development-rules.md](Development-rules.md) governing every change.
 
@@ -64,14 +64,15 @@ Source materials consulted: `p1.md` (master prompt) and `AuthLock_Proposal (1).d
 
 **Plus, Implementation Phase 8 — Swing UI (Completed — see §13 for the full account across two sessions):** `LoginFrame`/`DashboardFrame`/`FileTableModel`/`SwingAsync` (`authlock-client.ui`) fully implement UIUX.md §1–§2 — every remote call runs off the EDT via `SwingWorker`, buttons disable correctly during in-flight calls, lock/unlock enablement follows real lock state, session expiry triggers a dialog and returns to login, `JFileChooser` handles all file selection. `ClientMain` reduced to pure process bootstrap (TLS config, key loading, host resolution) handing off to `LoginFrame`. The full interactive walkthrough was completed end-to-end against a live server in a follow-up session (connect → login → Dashboard → upload → lock → unlock → download → logout, plus invalid-login and session-expiry error paths), with screenshots, an audit-log cross-check, and a SHA-256 file-integrity check as evidence. A real Owner-column bug (raw internal `userId` shown instead of the username) was found and fixed along the way; the full 87-test suite still passes.
 
+**Plus, Implementation Phase 9 — Integration:** all 18 [flow.md](flow.md) flows demonstrated working end-to-end locally. Closed the one genuine remaining gap, TEST-INT-002 (server down mid-session): added `VaultServiceRmiIntegrationTest.clientCallOnAnAlreadyObtainedStubFailsClearlyAfterServerStops` (force-unexports a live server object out from under an already-obtained stub, asserts a clean `RemoteException`, not a hang) — 88 tests total now — plus a live demonstration starting a client against a genuinely dead server (correctly shows `"Server unavailable — Connection refused"`, flow.md §17). The headline new evidence this phase: a real two-independent-process, two-actor session — alice and bob each running their own live `ClientMain`/`LoginFrame`/`DashboardFrame` against the one shared server — with alice uploading and locking a file, bob's independent session correctly showing it as `"Locked (another user)"` (Lock/Unlock buttons correctly disabled for him even with the row selected), and bob successfully downloading it anyway (confirming OQ-09's "download isn't lock-gated" live, cross-user, byte-identical to alice's original). `audit.log` cross-checked afterward: two distinct real `userId`s, every event in the correct order. Every other flow (login, auth failure, session validation/expiry, file listing/upload/download, locking/unlock, the mandatory concurrency race, invalid session, unauthorized-unlock, upload/download failure paths, audit logging) was already covered by the 88-test automated suite and/or Phase 8's interactive verification — re-confirmed as still passing rather than redundantly re-demonstrated. No integration gaps found requiring an application-code fix.
+
 ---
 
 ## 5. Pending Work
 
-**Phases 1 through 8 are complete (§13 Implementation Log). Phases 9 through 12 in [Implementation.md](Implementation.md) are Not Started:**
+**Phases 1 through 9 are complete (§13 Implementation Log). Phases 10 through 12 in [Implementation.md](Implementation.md) are Not Started:**
 
-- Phase 9 — Integration
-- Phase 10 — Testing (execution)
+- Phase 10 — Testing (execution/sign-off)
 - Phase 11 — Cloud Deployment
 - Phase 12 — Packaging & Demonstration
 
@@ -381,12 +382,33 @@ Build verification performed this session: `./gradlew build` → `BUILD SUCCESSF
 **Next Steps:** Begin Phase 9 — Integration: exercise the rest of [flow.md](flow.md)'s 18 flows end-to-end now that the UI layer is fully verified.
 **Blockers:** None. Phase 8 is genuinely `Completed` — every exit criterion (all workflows implemented, code-reviewed, and interactively verified against a live server; all four TEST-UI-* cases passing with evidence; full automated suite green) is satisfied.
 
+### Phase 9 — Integration — `Completed`
+
+**Current Phase:** Implementation Phase 9
+**Current Status:** Completed.
+**Completed:**
+- Mapped every one of [flow.md](flow.md)'s 18 flows to concrete evidence — either the existing 88-test automated suite (real RMI throughout, no mocks), Phase 8's interactive verification, or fresh work this phase — and closed the one genuine gap found: **TEST-INT-002** (Testing.md §4, "server stopped mid-session, client attempts a call"), previously `Not Run`.
+- **Automated fix for TEST-INT-002:** added `VaultServiceRmiIntegrationTest.clientCallOnAnAlreadyObtainedStubFailsClearlyAfterServerStops` — obtains a real stub over real RMI, force-unexports the live `VaultServiceImpl` out from under it (`UnicastRemoteObject.unexportObject(service, true)`, simulating the server process dying mid-session), then asserts the next call on that stub throws a clean `RemoteException` rather than hanging or failing silently. Discovered and fixed a genuine test-infrastructure bug along the way: this class's `@AfterEach` only ever called `registry.unbind(...)`, never unexported the registry object itself — `LocateRegistry.createRegistry(port)` exports the registry as a long-lived remote object in its own right, so the port stayed bound after the first test, and a second `@Test` method reusing it threw `ExportException`. Fixed by also `UnicastRemoteObject.unexportObject`-ing the registry in teardown (same root-cause pattern already documented elsewhere in this project's test history — `SessionManagerTest` et al. — just not yet applied to this specific class, since it only ever had one test method before). 88 tests total now (87 + 1), full suite still green.
+- **Live demonstration, flow.md §17 "Server Unavailable":** started a real client against a genuinely dead server (a server was run once to generate `authlock-shared.key`/`certs/`, then killed outright before the client ever attempted to connect). Client's Login screen correctly showed `"Server unavailable — Connection refused"`, Login button stayed disabled, no crash, no operation attempted — exactly matching the flow's documented behavior and `RmiConnection`'s `ServerUnavailableException` design.
+- **Headline new evidence — a genuine two-actor integration session:** ran the *real* server plus two fully independent `ClientMain` processes simultaneously, logged in as alice and bob respectively (two distinct live windows, two distinct real `userId`s confirmed via `audit.log`). Alice uploaded a file and locked it; bob's completely separate session, on its own `Refresh`, correctly showed the file as `"Locked (another user)"` (never alice's raw identity/session token, per API-spec.md's minimal-disclosure design) with Lock and Unlock both correctly disabled even with the row selected — proving the client's lock-state-aware UI reflects genuinely concurrent cross-process server state, not just a single session re-observing itself (which is all Phase 8 had shown). Bob then downloaded the still-locked file anyway — confirming OQ-09 ("download performs no lock check") live and cross-user, with the downloaded bytes verified identical (`diff`) to alice's original upload. Wrapped up with alice unlocking and both users logging out; the resulting `audit.log` shows the exact interleaved sequence (alice: LOGIN/UPLOAD/LOCK/UNLOCK/LOCK/…/UNLOCK/LOGOUT; bob: LOGIN/DOWNLOAD/LOGOUT) with correct ordering and correct per-user attribution throughout.
+- Every other flow (login, authentication failure, session creation/validation/expiry, file listing, upload, download, file locking, file unlock, the mandatory concurrent-lock race, logout, invalid session, unauthorized lock-not-owned access, upload/download failure paths, cross-cutting audit logging) already had solid, real evidence from the 88-test suite and/or Phase 8's own interactive verification — deliberately **not** redundantly re-demonstrated through the GUI a second time; re-confirmed still passing instead. Two flows (10 — concurrent lock race, 11 — stale-lock timeout) specifically were left to their existing automated coverage (TEST-CONC-001's 120+ real-RMI race rounds; `LockManagerTest`'s deterministic-clock timeout tests) rather than re-run live, since redoing either through the Swing UI would add wall-clock time (a 15-minute lock timeout) or redundant risk without new information — a deliberate, documented scope decision, not an oversight.
+- One flow (14 — Unauthorized Access / Lock Not Owned) is **not** reachable through the well-behaved Swing client at all by design: `DashboardFrame`'s Unlock button is client-side disabled whenever `lockOwnerHint != "you"`, so bob's GUI never even offers the doomed action — confirmed live this phase (bob's Unlock stayed disabled while viewing alice's lock). The server-side enforcement this flow actually tests (a malicious/buggy client attempting it anyway) is correctly and only testable by going around the friendly client, which is exactly what the existing `TEST-LOCK-004` automated test does directly against a raw `VaultService` stub — the right layer for this specific check, not a gap.
+**Files Created:** None.
+**Files Modified:** `VaultServiceRmiIntegrationTest.java` (new TEST-INT-002 test + registry-unexport teardown fix); `Testing.md` §4/§5 (TEST-INT-002 → **Pass**, with both forms of evidence).
+**Tests Added:** 1 (`clientCallOnAnAlreadyObtainedStubFailsClearlyAfterServerStops`).
+**Tests Passed:** All 88 automated tests (`./gradlew clean test`, full rebuild from scratch). All 18 flow.md flows demonstrated working, per the mapping above.
+**Tests Failed:** None.
+**Known Issues:** None found this phase. No integration gap required an application-code fix — the one real gap (TEST-INT-002) was a missing *test*, not a defect in the RMI/error-handling code, which already behaved correctly (`RemoteException` propagates cleanly; `ServerUnavailableException` wraps lookup failures) — confirmed once actually tested.
+**Architecture Changes:** None.
+**Security Changes:** None.
+**Open Decisions:** None resolved or newly raised. Same four remain open: OQ-02, OQ-06, OQ-10, OQ-14.
+**Next Steps:** Begin Phase 10 — Testing: execute/sign off the full [Testing.md](Testing.md) matrix (it is now nearly entirely `Pass` already, as a natural byproduct of how thoroughly Phases 1–9 tested along the way — Phase 10's remaining job is mostly a final consolidated pass/audit, not fresh test-writing) plus a from-scratch full-suite run and a final review that Testing.md and Context.md fully agree.
+**Blockers:** None for Phase 10. The only genuinely `Not Run` rows left in Testing.md's matrix are TEST-DEPLOY-001/002, which correctly require Phase 11's cloud VM and are out of scope until then.
+
 ---
 
 ## 14. Next Steps
 
-The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 9 — Integration.** Phase 8 is genuinely complete — every UI workflow has been interactively verified against a live server (see §13), not just code-reviewed. Phase 9 should exercise the rest of [flow.md](flow.md)'s 18 flows end-to-end as a coherent whole.
+The exact, recommended next action is: **begin [Implementation.md](Implementation.md) Phase 10 — Testing.** Phase 9 is genuinely complete — all 18 flow.md flows are demonstrated working end-to-end (see §13), including a real two-actor integration session. Testing.md's matrix is already almost entirely `Pass` as a natural consequence of how thoroughly each phase tested along the way; Phase 10's job is to execute/sign off the matrix as a coherent whole (a from-scratch full-suite run, a final consolidated review), not to write substantial new tests.
 
-No Open Question blocks Phase 9.
-
-No Open Question blocks Phase 7.
+No Open Question blocks Phase 10.
