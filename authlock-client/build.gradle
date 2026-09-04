@@ -16,3 +16,22 @@ tasks.named('run') {
 dependencies {
     implementation project(':authlock-common')
 }
+
+// Phase 12 deliverable (Implementation.md, `auth` §10): "Deployable .jar
+// files for both client and server" — see authlock-server/build.gradle's
+// matching fatJar task for the full rationale.
+// Run with: java -jar authlock-client-all.jar [host]
+tasks.register('fatJar', Jar) {
+    group = 'distribution'
+    description = 'Builds a single self-contained runnable jar (Phase 12 deliverable).'
+    archiveClassifier = 'all'
+    manifest {
+        attributes 'Main-Class': application.mainClass.get()
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(sourceSets.main.output)
+    dependsOn(configurations.runtimeClasspath)
+    from({
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    })
+}
