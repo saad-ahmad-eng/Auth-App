@@ -28,6 +28,7 @@ public final class UserStore {
     private static final String SEED_RESOURCE = "/seed-users.properties";
 
     private final Map<String, User> usersByUsername = new ConcurrentHashMap<>();
+    private final Map<String, User> usersById = new ConcurrentHashMap<>();
 
     public UserStore(PasswordHasher passwordHasher) {
         Properties seed = loadSeedProperties();
@@ -37,7 +38,23 @@ public final class UserStore {
             java.util.Arrays.fill(password, '\0');
             User user = new User(UUID.randomUUID().toString(), username, hashed, User.Status.ACTIVE);
             usersByUsername.put(username, user);
+            usersById.put(user.userId(), user);
         }
+    }
+
+    /**
+     * Resolves a stable {@code userId} (as stored on {@link User}, sessions,
+     * and file ownership records) back to its {@link User} — used to display
+     * a human-readable username (e.g. the vault UI's "Owner" column) instead
+     * of the opaque internal ID. Found during Phase 8 interactive
+     * verification: the Dashboard was showing the raw {@code userId} in the
+     * Owner column, which is correct data but unreadable to an end user.
+     */
+    public Optional<User> findByUserId(String userId) {
+        if (userId == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(usersById.get(userId));
     }
 
     public Optional<User> findByUsername(String username) {

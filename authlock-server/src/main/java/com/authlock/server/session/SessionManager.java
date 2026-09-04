@@ -40,8 +40,8 @@ import java.util.function.Consumer;
  */
 public final class SessionManager implements AutoCloseable {
 
-    static final Duration IDLE_TIMEOUT = Duration.ofMinutes(30);
-    static final Duration MAX_LIFETIME = Duration.ofHours(8);
+    public static final Duration IDLE_TIMEOUT = Duration.ofMinutes(30);
+    public static final Duration MAX_LIFETIME = Duration.ofHours(8);
     private static final Duration CLEANUP_INTERVAL = Duration.ofSeconds(60);
     private static final int TOKEN_BYTES = 32; // 256 bits
 
@@ -55,6 +55,20 @@ public final class SessionManager implements AutoCloseable {
 
     public SessionManager() {
         this(IDLE_TIMEOUT, MAX_LIFETIME, Clock.systemUTC(), true);
+    }
+
+    /**
+     * Same as {@link #SessionManager()} but with explicit timeouts instead
+     * of the {@link #IDLE_TIMEOUT}/{@link #MAX_LIFETIME} defaults. Intended
+     * for a deliberately short-lived <b>server process</b> configured for
+     * interactive session-expiry verification (see
+     * {@code VaultServiceImpl}'s {@code authlock.session.*} system
+     * properties) — not for changing the shipped defaults, which remain
+     * OQ-08's 30-minute idle / 8-hour absolute values unless this
+     * constructor is used explicitly.
+     */
+    public SessionManager(Duration idleTimeout, Duration maxLifetime) {
+        this(idleTimeout, maxLifetime, Clock.systemUTC(), true);
     }
 
     /**

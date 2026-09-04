@@ -29,6 +29,7 @@ import java.rmi.RemoteException;
 import java.rmi.server.RemoteServer;
 import java.rmi.server.ServerNotActiveException;
 import java.rmi.server.UnicastRemoteObject;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +57,7 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
     private static final String DEFAULT_AUDIT_LOG = "audit.log";
 
     private final AuthenticationService authenticationService;
+    private final UserStore userStore;
     private final SessionManager sessionManager;
     private final VaultFileService vaultFileService;
     private final LockManager lockManager;
@@ -85,9 +87,9 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
                 tlsEnabled ? new SslRMIServerSocketFactory() : null);
 
         PasswordHasher passwordHasher = new PasswordHasher();
-        UserStore userStore = new UserStore(passwordHasher);
+        this.userStore = new UserStore(passwordHasher);
         this.authenticationService = new AuthenticationService(userStore, passwordHasher);
-        this.sessionManager = new SessionManager();
+        this.sessionManager = createSessionManager();
 
         Path vaultDir = Path.of(System.getProperty("authlock.vault.dir", DEFAULT_VAULT_DIR));
         this.vaultFileService = new VaultFileService(vaultDir);
@@ -102,6 +104,29 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
         // Architecture.md §2.7: Lock Manager's documented input includes
         // "session-expiry notifications from Session Manager" — this is that wire.
         this.sessionManager.setSessionEndedListener(lockManager::releaseAllOwnedBySession);
+    }
+
+    /**
+     * Builds the session manager, honoring optional {@code authlock.session.idleTimeoutSeconds}
+     * / {@code authlock.session.maxLifetimeSeconds} system properties if set. Unset (the normal
+     * case) yields exactly {@link SessionManager#SessionManager()}'s OQ-08 defaults (30 min idle
+     * / 8 hr absolute) — this is <b>not</b> a production configuration knob, it exists solely so
+     * Phase 8's interactive session-expiry verification (TEST-UI-004, Testing.md) can run a real
+     * server process with a deliberately short-lived session instead of waiting 30 real minutes.
+     */
+    private static SessionManager createSessionManager() {
+        String idleSeconds = System.getProperty("authlock.session.idleTimeoutSeconds");
+        String maxLifetimeSeconds = System.getProperty("authlock.session.maxLifetimeSeconds");
+        if (idleSeconds == null && maxLifetimeSeconds == null) {
+            return new SessionManager();
+        }
+        Duration idleTimeout = idleSeconds != null
+                ? Duration.ofSeconds(Long.parseLong(idleSeconds))
+                : SessionManager.IDLE_TIMEOUT;
+        Duration maxLifetime = maxLifetimeSeconds != null
+                ? Duration.ofSeconds(Long.parseLong(maxLifetimeSeconds))
+                : SessionManager.MAX_LIFETIME;
+        return new SessionManager(idleTimeout, maxLifetime);
     }
 
     @Override
@@ -170,7 +195,14 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
         }
 
         try {
-            FileRecord record = vaultFileService.store(filename, plaintext, userId);
+            // Owner is the human-readable username, not the internal userId —
+            // the userId is stable/opaque by design (User.java), but the
+            // vault UI's Owner column (UIUX.md §2) needs to show something a
+            // person can actually read. Audit log entries intentionally keep
+            // logging the raw userId (Security.md §9) since that's a stable
+            // internal identifier, not a display value.
+            String ownerDisplayName = userStore.findByUserId(userId).map(User::username).orElse(userId);
+            FileRecord record = vaultFileService.store(filename, plaintext, ownerDisplayName);
             auditLogger.logSuccess(AuditEventType.UPLOAD, userId, "uploadFile", record.fileId(), clientInfo);
             return record.fileId();
         } catch (IllegalArgumentException invalidFilename) {
