@@ -174,9 +174,16 @@ install_and_start_service() {
         log "Service account 'authlock' not found — creating it (normally provision-vm.sh does this)."
         useradd --system --create-home --home-dir /opt/authlock --shell /usr/sbin/nologin authlock
     fi
-    if [ ! -f /etc/systemd/system/authlock-server.service ]; then
-        log "Installing systemd unit (normally provision-vm.sh does this)."
-        cat > /etc/systemd/system/authlock-server.service <<EOF
+    # Always (re)write the unit so it matches THIS run's APP_DIR — not just
+    # when absent. provision-vm.sh installs a unit pointing at its own
+    # default (/opt/authlock/app) before the real source location is known;
+    # if this script is later run with a different --app-dir (e.g. a source
+    # tree under $HOME instead of /opt), a "write once" guard here would
+    # leave that stale unit in place and the service would fail with
+    # "Unable to locate executable" against the wrong path. Regenerating
+    # unconditionally is cheap and keeps this idempotent either way.
+    log "Writing systemd unit for APP_DIR=$APP_DIR (regenerated every run so it can't go stale)..."
+    cat > /etc/systemd/system/authlock-server.service <<EOF
 [Unit]
 Description=AuthLock RMI Vault Server
 After=network.target
@@ -193,8 +200,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-        systemctl daemon-reload
-    fi
+    systemctl daemon-reload
 
     chown -R authlock:authlock "$APP_DIR" /opt/authlock/authlock-server.env 2>/dev/null || true
 

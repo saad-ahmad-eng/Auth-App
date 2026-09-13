@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuthLock</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>AUTHLOCK</h1>
+  <div id="who" class="topbar-user" hidden>
+    <span id="whoami"></span><span id="whoamiId" class="user-id"></span>
+    <button id="adminBtn" type="button" hidden>ADMIN</button>
+    <button id="logoutBtn" type="button">LOG OUT</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- LOGIN VIEW -->
+  <section id="loginView">
+    <form id="loginForm" class="panel" autocomplete="off">
+      <h2>LOG IN</h2>
+      <label for="username">USERNAME</label>
+      <input id="username" name="username" type="text" required autofocus
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label for="password">PASSWORD</label>
+      <div class="password-row">
+        <input id="password" name="password" type="password" required
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button id="togglePassword" type="button">SHOW</button>
+      </div>
+      <button type="submit">LOG IN</button>
+      <p id="loginError" class="error" hidden></p>
+    </form>
+  </section>
+
+  <!-- DASHBOARD VIEW -->
+  <section id="dashboardView" hidden>
+
+    <form id="uploadForm" class="panel">
+      <h2>UPLOAD</h2>
+      <div id="dropZone" class="drop-zone">
+        <p>DRAG &amp; DROP A FILE HERE, OR:</p>
+        <input id="uploadInput" name="file" type="file" required>
+      </div>
+      <button type="submit">UPLOAD</button>
+      <p class="hint">Uploading a file with the same name as an existing one does not replace it — every upload creates a new entry. Use REPLACE on a file you hold the lock on to update it in place.</p>
+      <div id="uploadProgressRow" class="progress-row" hidden>
+        <div class="progress-track"><div id="uploadProgressBar" class="progress-bar"></div></div>
+        <span id="uploadProgressLabel">0%</span>
+      </div>
+      <p id="uploadError" class="error" hidden></p>
+    </form>
+
+    <div class="panel">
+      <h2>FILES <span id="liveIndicator" class="live-indicator">LIVE</span></h2>
+      <label for="searchInput">SEARCH BY FILENAME</label>
+      <input id="searchInput" type="text" placeholder="Type to filter…" autocomplete="off">
+      <table id="filesTable">
+        <thead>
+          <tr>
+            <th>FILE ID</th>
+            <th id="sortByFilename" class="sortable">FILENAME</th>
+            <th id="sortBySize" class="sortable">SIZE</th>
+            <th>OWNER</th>
+            <th>LOCK</th>
+            <th>ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="filesBody"></tbody>
+      </table>
+      <p id="filesEmpty" class="hint" hidden>No files yet — upload one above.</p>
+      <p id="filesNoMatch" class="hint" hidden>No files match your search.</p>
+      <p id="filesError" class="error" hidden></p>
+    </div>
+
+  </section>
+
+  <!-- VERSION HISTORY -->
+  <dialog id="historyDialog">
+    <h2>VERSION HISTORY</h2>
+    <p id="historyFilename" class="hint"></p>
+    <table id="historyTable">
+      <thead>
+        <tr>
+          <th>VERSION</th>
+          <th>REPLACED BY</th>
+          <th>WHEN</th>
+          <th>SIZE</th>
+          <th>ACTIONS</th>
+        </tr>
+      </thead>
+      <tbody id="historyBody"></tbody>
+    </table>
+    <p id="historyEmpty" class="hint" hidden>No prior versions — this file has never been replaced.</p>
+    <button id="historyCloseBtn" type="button">CLOSE</button>
+  </dialog>
+
+  <!-- ADMIN PANEL — only ever shown/opened for role=ADMIN (see app.js) -->
+  <dialog id="adminDialog">
+    <h2>ADMIN — USER MANAGEMENT</h2>
+
+    <form id="createUserForm" class="panel">
+      <h2>CREATE USER</h2>
+      <label for="newUsername">USERNAME</label>
+      <input id="newUsername" type="text" required autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label for="newPassword">PASSWORD</label>
+      <input id="newPassword" type="password" required autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label for="newRole">ROLE</label>
+      <select id="newRole">
+        <option value="STANDARD" selected>STANDARD</option>
+        <option value="ADMIN">ADMIN</option>
+      </select>
+      <button type="submit">CREATE</button>
+      <p id="createUserError" class="error" hidden></p>
+    </form>
+
+    <table id="adminUsersTable">
+      <thead>
+        <tr>
+          <th>USERNAME</th>
+          <th>ROLE</th>
+          <th>STATUS</th>
+          <th>ACTIONS</th>
+        </tr>
+      </thead>
+      <tbody id="adminUsersBody"></tbody>
+    </table>
+    <p id="adminUsersError" class="error" hidden></p>
+
+    <button id="adminCloseBtn" type="button">CLOSE</button>
+  </dialog>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -23,6 +23,16 @@ public enum AuditEventType {
     DOWNLOAD,
     LOCK,
     UNLOCK,
+    /**
+     * Phase 13 follow-up: the web UI's lock-gated in-place "Replace" action
+     * ({@code VaultServiceImpl.replaceFile}) — distinct from {@link #UPLOAD},
+     * which always creates a new file rather than overwriting an existing one.
+     */
+    REPLACE,
+    /** Phase 13 follow-up: a prior version was archived as part of a {@link #REPLACE} — its own event, distinct from REPLACE itself, per this pass's explicit request. */
+    VERSION_CREATED,
+    /** Phase 13 follow-up: any {@code /api/admin/*} call — list/create/disable/enable — logged for both success AND rejection (including a non-admin's attempt), per this pass's explicit request. */
+    ADMIN,
     /** An unexpected, unclassified server-side error during any operation (Security.md §9 "Errors"). */
     ERROR
 }

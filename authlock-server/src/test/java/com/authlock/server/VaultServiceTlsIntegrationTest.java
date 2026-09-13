@@ -109,7 +109,7 @@ class VaultServiceTlsIntegrationTest {
                 "localhost", TEST_REGISTRY_PORT, new SslRMIClientSocketFactory());
         VaultService client = (VaultService) clientRegistryView.lookup(RmiConfig.SERVICE_NAME);
 
-        String token = client.login("alice", "AliceP@ss1");
+        String token = client.login("alice", "Alice2026Pass");
 
         assertNotNull(token);
         client.logout(token);

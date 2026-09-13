@@ -152,6 +152,23 @@ public final class SessionManager implements AutoCloseable {
         return Optional.ofNullable(removed);
     }
 
+    /**
+     * Immediately invalidates every session belonging to {@code userId}
+     * (Phase 13 admin panel: disabling an account must kill its existing
+     * sessions, not just block future logins) — fires the session-ended
+     * listener for each one removed, same as {@link #invalidate}, so any
+     * locks held by those sessions are released too.
+     */
+    public void invalidateAllForUser(String userId) {
+        sessionsByToken.entrySet().removeIf(entry -> {
+            boolean matches = entry.getValue().userId().equals(userId);
+            if (matches) {
+                sessionEndedListener.accept(entry.getKey());
+            }
+            return matches;
+        });
+    }
+
     /** Number of currently tracked (not necessarily still valid) sessions — for tests/diagnostics. */
     public int sessionCount() {
         return sessionsByToken.size();

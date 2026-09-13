@@ -100,8 +100,8 @@ class VaultServiceLockIntegrationTest {
      */
     @org.junit.jupiter.api.BeforeEach
     void freshFixture() throws Exception {
-        aliceToken = client.login("alice", "AliceP@ss1");
-        bobToken = client.login("bob", "BobP@ss1");
+        aliceToken = client.login("alice", "Alice2026Pass");
+        bobToken = client.login("bob", "Bob2026Pass");
         fileId = CryptoTestSupport.uploadPlaintext(client, sharedKey, aliceToken, "shared.txt", "shared content".getBytes());
     }
 

@@ -120,7 +120,7 @@ class VaultServiceLockConcurrencyTest {
         // serialized by some per-user artifact.
         List<String> sessionTokens = new ArrayList<>();
         for (int i = 0; i < CONCURRENT_CLIENTS; i++) {
-            sessionTokens.add(i % 2 == 0 ? client.login("alice", "AliceP@ss1") : client.login("bob", "BobP@ss1"));
+            sessionTokens.add(i % 2 == 0 ? client.login("alice", "Alice2026Pass") : client.login("bob", "Bob2026Pass"));
         }
         String fileId = CryptoTestSupport.uploadPlaintext(client, sharedKey, sessionTokens.get(0), "race-target.txt", "contested".getBytes());
 
@@ -202,7 +202,7 @@ class VaultServiceLockConcurrencyTest {
      */
     @Test
     void testConc002_concurrentUploadsOfDifferentFilesDoNotContend() throws Exception {
-        String token = client.login("alice", "AliceP@ss1");
+        String token = client.login("alice", "Alice2026Pass");
         try {
             int uploaders = 8;
             ExecutorService pool = Executors.newFixedThreadPool(uploaders);
@@ -241,8 +241,8 @@ class VaultServiceLockConcurrencyTest {
      */
     @Test
     void testConc003_listFilesStaysConsistentWhileLockUnlockCycleRuns() throws Exception {
-        String lockerToken = client.login("alice", "AliceP@ss1");
-        String readerToken = client.login("bob", "BobP@ss1");
+        String lockerToken = client.login("alice", "Alice2026Pass");
+        String readerToken = client.login("bob", "Bob2026Pass");
         try {
             String fileId = CryptoTestSupport.uploadPlaintext(client, sharedKey, lockerToken, "conc3-target.txt", "x".getBytes());
 

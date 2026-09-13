@@ -77,7 +77,7 @@ class VaultServiceFileIntegrationTest {
         Registry clientRegistryView = LocateRegistry.getRegistry("localhost", TEST_REGISTRY_PORT);
         client = (VaultService) clientRegistryView.lookup("VaultService");
 
-        sessionToken = client.login("alice", "AliceP@ss1");
+        sessionToken = client.login("alice", "Alice2026Pass");
     }
 
     @AfterAll

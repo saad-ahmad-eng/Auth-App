@@ -78,7 +78,7 @@ Useful system properties (pass as `-D<name>=<value>` to the JVM — see each cla
 | `authlock.vault.dir` | `vault-storage` | Server: where uploaded files are stored. |
 | `authlock.session.idleTimeoutSeconds` / `authlock.session.maxLifetimeSeconds` | 1800 / 28800 | Session timeout overrides — testing/demo use only, never a production config. |
 
-Seed accounts (`seed-users.properties`): `alice`/`AliceP@ss1`, `bob`/`BobP@ss1`.
+Seed accounts (`seed-users.properties`): `alice`/`Alice2026Pass`, `bob`/`Bob2026Pass`.
 
 ## Run (deployable jars)
 

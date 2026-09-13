@@ -31,6 +31,13 @@ vault-storage/
 authlock-shared.key
 *.key
 
+# EC2 SSH private keys — never commit
+*.pem
+
+# Phase 13 admin panel: runtime-created/modified accounts (UserStore) — hashed
+# passwords, not plaintext, but still generated per-environment state, never committed
+authlock-users.properties
+
 # Generated TLS dev keystore/truststore (RMI-over-TLS, ADR-007/OQ-05)
 certs/
 

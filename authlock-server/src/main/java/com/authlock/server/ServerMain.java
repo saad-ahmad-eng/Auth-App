@@ -2,9 +2,14 @@ package com.authlock.server;
 
 import com.authlock.common.RmiConfig;
 import com.authlock.common.tls.DevTlsSetup;
+import com.authlock.server.crypto.EncryptionService;
+import com.authlock.server.http.AuthLockHttpServer;
+import com.authlock.server.http.HttpsRedirectServer;
 
+import javax.net.ssl.SSLContext;
 import javax.rmi.ssl.SslRMIClientSocketFactory;
 import javax.rmi.ssl.SslRMIServerSocketFactory;
+import java.nio.file.Path;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.ExportException;
@@ -39,6 +44,9 @@ import java.rmi.server.ExportException;
  */
 public final class ServerMain {
 
+    private static final int DEFAULT_HTTP_PORT = 8080;
+    private static final int DEFAULT_HTTPS_PORT = 8443;
+
     private ServerMain() {
     }
 
@@ -49,14 +57,36 @@ public final class ServerMain {
             }
 
             boolean tlsEnabled = Boolean.parseBoolean(System.getProperty("authlock.tls.enabled", "true"));
-            if (tlsEnabled) {
-                DevTlsSetup.configure();
-            }
+            // Unconditional (not gated on tlsEnabled): the web UI's HTTPS
+            // listener below always needs a keystore, regardless of whether
+            // RMI-over-TLS itself is on — idempotent (generates the cert
+            // only if it doesn't already exist), so this costs nothing on
+            // the normal tlsEnabled=true path where it used to be gated.
+            DevTlsSetup.configure();
 
             Registry registry = getOrCreateRegistry(RmiConfig.REGISTRY_PORT, tlsEnabled);
 
             VaultServiceImpl service = new VaultServiceImpl(RmiConfig.SERVICE_PORT, tlsEnabled);
             registry.rebind(RmiConfig.SERVICE_NAME, service);
+
+            // Phase 13: a browser-facing HTTPS bridge onto the same VaultServiceImpl
+            // instance, in the same process — see AuthLockHttpServer's class Javadoc.
+            // Its own EncryptionService instance is built the same way VaultServiceImpl
+            // builds its (private) one, over the same shared key file, so both
+            // transports encrypt/decrypt file payloads identically. Its TLS certificate
+            // is the SAME one RMI-over-TLS uses (DevTlsSetup.currentSslContext()), not a
+            // second one — see that method's Javadoc for why that's safe to reuse.
+            int httpsPort = Integer.parseInt(System.getProperty("authlock.https.port", String.valueOf(DEFAULT_HTTPS_PORT)));
+            int httpPort = Integer.parseInt(System.getProperty("authlock.http.port", String.valueOf(DEFAULT_HTTP_PORT)));
+            Path keyFile = Path.of(System.getProperty("authlock.crypto.keyfile", "authlock-shared.key"));
+            SSLContext webSslContext = DevTlsSetup.currentSslContext();
+            AuthLockHttpServer httpsServer = new AuthLockHttpServer(service, new EncryptionService(keyFile), httpsPort, webSslContext);
+            httpsServer.start();
+
+            // Plain HTTP stays up only as a redirect to HTTPS — see HttpsRedirectServer's
+            // Javadoc for why credentials must never be submittable on this listener.
+            HttpsRedirectServer redirectServer = new HttpsRedirectServer(httpPort, httpsPort);
+            redirectServer.start();
 
             System.out.println("AuthLock server ready.");
             System.out.println("  Registry port : " + RmiConfig.REGISTRY_PORT);
@@ -65,6 +95,9 @@ public final class ServerMain {
             System.out.println("  Transport     : " + (tlsEnabled
                     ? "RMI-over-TLS (dev self-signed cert — see DevTlsSetup)"
                     : "plaintext RMI (authlock.tls.enabled=false)"));
+            System.out.println("  Web UI        : https://<host>:" + httpsServer.port()
+                    + "/ (self-signed cert — browser will warn on first visit, expected)");
+            System.out.println("  (http://<host>:" + redirectServer.port() + "/ redirects to the above; no login accepted there)");
             System.out.println("Full VaultService surface: ping, login/logout, listFiles,");
             System.out.println("  uploadFile/downloadFile, lockFile/unlockFile — all AES-256-GCM +");
             System.out.println("  RMI-over-TLS encrypted, session-authorized, and audit-logged.");

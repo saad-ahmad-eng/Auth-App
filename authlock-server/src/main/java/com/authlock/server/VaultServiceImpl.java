@@ -134,6 +134,33 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
         return "AuthLock VaultService is alive at " + Instant.now();
     }
 
+    /**
+     * The caller's own account record (own {@code userId}/{@code username}
+     * only — never usable to look up anyone else's). Not part of the RMI
+     * {@link VaultService} surface: the Swing client has never needed this,
+     * and adding it there would mean widening a {@code Remote} interface
+     * for a need only the web UI's own-identity display
+     * ({@code AuthLockHttpServer}'s {@code GET /api/me}) actually has. Same
+     * unaudited treatment as {@link #listFiles} — a read with no
+     * information value to the audit trail.
+     */
+    public User whoAmI(String sessionToken) throws VaultServiceException {
+        String userId = requireValidSession(sessionToken);
+        return userStore.findByUserId(userId)
+                .orElseThrow(() -> new VaultServiceException(ErrorCode.SERVER_ERROR,
+                        "No user record for an otherwise-valid session."));
+    }
+
+    /**
+     * Records a rate-limited {@code POST /api/login} attempt in the audit
+     * trail (Phase 13 hardening; {@code AuthLockHttpServer}'s rate
+     * limiter calls this instead of silently dropping the attempt). Not
+     * part of the RMI {@link VaultService} surface.
+     */
+    public void auditLoginThrottled(String attemptedUsername, String clientInfo) {
+        auditLogger.logFailure(AuditEventType.LOGIN, attemptedUsername, "login", null, ErrorCode.RATE_LIMITED, clientInfo);
+    }
+
     @Override
     public String login(String username, String password) throws RemoteException, VaultServiceException {
         String clientInfo = currentClientHost();
@@ -262,6 +289,181 @@ public class VaultServiceImpl extends UnicastRemoteObject implements VaultServic
             throw new VaultServiceException(ErrorCode.LOCK_NOT_OWNED, "You do not hold the lock on this file.");
         }
         auditLogger.logSuccess(AuditEventType.UNLOCK, userId, "unlockFile", fileId, clientInfo);
+    }
+
+    /**
+     * Overwrites an existing file's content in place — same {@code fileId}
+     * — but ONLY if the caller's session currently holds that file's lock
+     * (Phase 13 follow-up: the web UI's lock-gated "Replace" action, this
+     * pass's explicit request, distinct from {@link #uploadFile}'s
+     * always-a-new-{@code fileId} behavior, which is unchanged). Not part
+     * of the RMI {@link VaultService} surface for the same reason
+     * {@link #whoAmI} isn't — nothing indicates the Swing client needs it,
+     * and {@code AuthLockHttpServer} calls {@code VaultServiceImpl}
+     * directly, in-process, same as everywhere else in this class.
+     *
+     * @throws VaultServiceException with {@link ErrorCode#LOCK_NOT_OWNED} if
+     *         the caller does not currently hold this file's lock
+     *         (including "not locked at all") — the same error
+     *         {@link #unlockFile} uses for the equivalent situation
+     */
+    public FileMetadata replaceFile(String sessionToken, String fileId, byte[] fileBytes, byte[] iv)
+            throws VaultServiceException {
+        String clientInfo = currentClientHost();
+        String userId = requireValidSession(sessionToken, AuditEventType.REPLACE, "replaceFile");
+        requireFileExists(fileId, AuditEventType.REPLACE, "replaceFile", userId);
+
+        Optional<String> lockOwner = lockManager.currentOwner(fileId);
+        if (lockOwner.isEmpty() || !lockOwner.get().equals(sessionToken)) {
+            auditLogger.logFailure(AuditEventType.REPLACE, userId, "replaceFile", fileId, ErrorCode.LOCK_NOT_OWNED, clientInfo);
+            throw new VaultServiceException(ErrorCode.LOCK_NOT_OWNED, "You must hold this file's lock to replace its content.");
+        }
+
+        byte[] plaintext;
+        try {
+            plaintext = encryptionService.decrypt(iv, fileBytes);
+        } catch (TamperDetectedException tampered) {
+            auditLogger.logFailure(AuditEventType.REPLACE, userId, "replaceFile", fileId, ErrorCode.UPLOAD_FAILED, clientInfo);
+            throw new VaultServiceException(ErrorCode.UPLOAD_FAILED, "Upload payload failed integrity check.");
+        } catch (RuntimeException malformed) {
+            auditLogger.logFailure(AuditEventType.REPLACE, userId, "replaceFile", fileId, ErrorCode.UPLOAD_FAILED, clientInfo);
+            throw new VaultServiceException(ErrorCode.UPLOAD_FAILED, "Upload payload could not be decrypted.");
+        }
+
+        try {
+            // Owner is the human-readable username, per uploadFile's own note — the
+            // version record's "replacedBy" needs the same display value, not the
+            // opaque userId.
+            String replacerUsername = userStore.findByUserId(userId).map(User::username).orElse(userId);
+            FileRecord updated = vaultFileService.replaceWithHistory(fileId, plaintext, replacerUsername)
+                    .orElseThrow(() -> new VaultServiceException(ErrorCode.FILE_NOT_FOUND, "No such file."));
+            auditLogger.logSuccess(AuditEventType.REPLACE, userId, "replaceFile", fileId, clientInfo);
+            auditLogger.logSuccess(AuditEventType.VERSION_CREATED, userId, "replaceFile", fileId, clientInfo);
+            return toDto(updated, sessionToken);
+        } catch (IOException storageError) {
+            auditLogger.logFailure(AuditEventType.REPLACE, userId, "replaceFile", fileId, ErrorCode.UPLOAD_FAILED, clientInfo);
+            throw new VaultServiceException(ErrorCode.UPLOAD_FAILED, "Could not store replacement content.");
+        }
+    }
+
+    /**
+     * A file's version timeline (Phase 13 follow-up) — read-only, no lock
+     * gating (like {@link #downloadFile}, a lock protects writes, not
+     * reads). Not part of the RMI surface, same reasoning as
+     * {@link #replaceFile}.
+     */
+    public List<VaultFileService.FileVersion> getFileVersions(String sessionToken, String fileId) throws VaultServiceException {
+        requireValidSession(sessionToken);
+        if (!vaultFileService.exists(fileId)) {
+            throw new VaultServiceException(ErrorCode.FILE_NOT_FOUND, "No such file.");
+        }
+        return vaultFileService.versionsOf(fileId);
+    }
+
+    /** A specific prior version's plaintext bytes — same read-only, no-lock-gating rule as {@link #getFileVersions}. */
+    public byte[] downloadFileVersion(String sessionToken, String fileId, int versionNumber) throws VaultServiceException {
+        String userId = requireValidSession(sessionToken);
+        String clientInfo = currentClientHost();
+        Optional<byte[]> content;
+        try {
+            content = vaultFileService.versionContent(fileId, versionNumber);
+        } catch (IOException e) {
+            auditLogger.logFailure(AuditEventType.DOWNLOAD, userId, "downloadFileVersion", fileId, ErrorCode.DOWNLOAD_FAILED, clientInfo);
+            throw new VaultServiceException(ErrorCode.DOWNLOAD_FAILED, "Could not read version content.");
+        }
+        if (content.isEmpty()) {
+            auditLogger.logFailure(AuditEventType.DOWNLOAD, userId, "downloadFileVersion", fileId, ErrorCode.FILE_NOT_FOUND, clientInfo);
+            throw new VaultServiceException(ErrorCode.FILE_NOT_FOUND, "No such file version.");
+        }
+        auditLogger.logSuccess(AuditEventType.DOWNLOAD, userId, "downloadFileVersion", fileId, clientInfo);
+        return content.get();
+    }
+
+    // ---- Phase 13 follow-up: admin-only user management, not part of the RMI surface (same reasoning as whoAmI/replaceFile) ----
+
+    /** Every account (Phase 13 admin panel) — {@link User.Role#ADMIN} callers only. */
+    public java.util.Collection<User> adminListUsers(String sessionToken) throws VaultServiceException {
+        requireAdmin(sessionToken, "adminListUsers");
+        return userStore.listAll();
+    }
+
+    /**
+     * Creates a new account. {@code newPassword} is hashed immediately —
+     * the same {@link PasswordHasher} every other account's password goes
+     * through — and is never itself stored or returned.
+     *
+     * @throws VaultServiceException with {@link ErrorCode#USER_ALREADY_EXISTS} if the username is taken
+     */
+    public User adminCreateUser(String sessionToken, String newUsername, char[] newPassword, User.Role role) throws VaultServiceException {
+        String adminUserId = requireAdmin(sessionToken, "adminCreateUser");
+        String clientInfo = currentClientHost();
+        try {
+            User created = userStore.createUser(newUsername, newPassword, role);
+            auditLogger.logSuccess(AuditEventType.ADMIN, adminUserId, "adminCreateUser:" + newUsername, null, clientInfo);
+            return created;
+        } catch (IllegalArgumentException duplicateUsername) {
+            auditLogger.logFailure(AuditEventType.ADMIN, adminUserId, "adminCreateUser:" + newUsername, null, ErrorCode.USER_ALREADY_EXISTS, clientInfo);
+            throw new VaultServiceException(ErrorCode.USER_ALREADY_EXISTS, "That username is already taken.");
+        } catch (IOException storageError) {
+            auditLogger.logFailure(AuditEventType.ADMIN, adminUserId, "adminCreateUser:" + newUsername, null, ErrorCode.SERVER_ERROR, clientInfo);
+            throw new VaultServiceException(ErrorCode.SERVER_ERROR, "Could not persist the new account.");
+        }
+    }
+
+    /**
+     * Disables an account and immediately invalidates every session it
+     * currently holds (Phase 13 admin panel: "disabled" must mean actually
+     * locked out right now, not just blocked from a future login).
+     */
+    public User adminDisableUser(String sessionToken, String targetUserId) throws VaultServiceException {
+        User updated = adminSetStatus(sessionToken, targetUserId, User.Status.DISABLED, "adminDisableUser");
+        sessionManager.invalidateAllForUser(targetUserId);
+        return updated;
+    }
+
+    /** Re-enables a previously disabled account, allowing it to log in again. */
+    public User adminEnableUser(String sessionToken, String targetUserId) throws VaultServiceException {
+        return adminSetStatus(sessionToken, targetUserId, User.Status.ACTIVE, "adminEnableUser");
+    }
+
+    private User adminSetStatus(String sessionToken, String targetUserId, User.Status status, String operation) throws VaultServiceException {
+        String adminUserId = requireAdmin(sessionToken, operation);
+        String clientInfo = currentClientHost();
+        try {
+            User updated = userStore.setStatus(targetUserId, status)
+                    .orElseThrow(() -> new VaultServiceException(ErrorCode.USER_NOT_FOUND, "No such user."));
+            auditLogger.logSuccess(AuditEventType.ADMIN, adminUserId, operation + ":" + targetUserId, null, clientInfo);
+            return updated;
+        } catch (VaultServiceException notFound) {
+            auditLogger.logFailure(AuditEventType.ADMIN, adminUserId, operation + ":" + targetUserId, null, ErrorCode.USER_NOT_FOUND, clientInfo);
+            throw notFound;
+        } catch (IOException storageError) {
+            auditLogger.logFailure(AuditEventType.ADMIN, adminUserId, operation + ":" + targetUserId, null, ErrorCode.SERVER_ERROR, clientInfo);
+            throw new VaultServiceException(ErrorCode.SERVER_ERROR, "Could not persist the account status change.");
+        }
+    }
+
+    /**
+     * Validates the session AND that its owner is an {@link User.Role#ADMIN}
+     * — audits every call under {@link AuditEventType#ADMIN}, success or
+     * rejected (including a non-admin's attempt), per this pass's explicit
+     * request, not just successful admin actions.
+     */
+    private String requireAdmin(String sessionToken, String operation) throws VaultServiceException {
+        String clientInfo = currentClientHost();
+        String userId;
+        try {
+            userId = requireValidSession(sessionToken);
+        } catch (VaultServiceException invalidSession) {
+            auditLogger.logFailure(AuditEventType.ADMIN, null, operation, null, invalidSession.getErrorCode(), clientInfo);
+            throw invalidSession;
+        }
+        User caller = userStore.findByUserId(userId).orElse(null);
+        if (caller == null || caller.role() != User.Role.ADMIN) {
+            auditLogger.logFailure(AuditEventType.ADMIN, userId, operation, null, ErrorCode.UNAUTHORIZED, clientInfo);
+            throw new VaultServiceException(ErrorCode.UNAUTHORIZED, "Admin role required.");
+        }
+        return userId;
     }
 
     private void requireFileExists(String fileId, AuditEventType auditEventType, String operation, String userId)

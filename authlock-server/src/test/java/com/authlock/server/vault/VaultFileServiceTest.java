@@ -82,4 +82,36 @@ class VaultFileServiceTest {
 
         assertEquals(2, service.listAll().size());
     }
+
+    /**
+     * Regression test: {@code <fileId>.versions.properties} (the version-history
+     * sidecar) also matches the {@code *.properties} glob {@code
+     * loadExistingMetadata} uses for regular file-record sidecars — a real bug
+     * caught only by restarting a service instance whose directory ALREADY has
+     * version history (a fresh single-construction test run never exercises the
+     * loader against pre-existing version files at all). Not just "doesn't
+     * throw" — also confirms both the live file AND its version history
+     * actually survive the restart.
+     */
+    @Test
+    void versionHistorySurvivesServiceRestartAndDoesNotBreakRegularFileLoading(@TempDir Path tempDir) throws IOException {
+        VaultFileService first = new VaultFileService(tempDir);
+        FileRecord stored = first.store("versioned.txt", "v0".getBytes(), "user-1");
+        first.replaceWithHistory(stored.fileId(), "v1".getBytes(), "user-2");
+        first.replaceWithHistory(stored.fileId(), "v2".getBytes(), "user-1");
+
+        VaultFileService afterRestart = new VaultFileService(tempDir);
+
+        assertEquals(1, afterRestart.listAll().size(), "the versions sidecar must not be mis-loaded as its own file record");
+        Optional<VaultFileService.StoredFile> retrieved = afterRestart.retrieve(stored.fileId());
+        assertTrue(retrieved.isPresent());
+        assertArrayEquals("v2".getBytes(), retrieved.get().content());
+
+        var versions = afterRestart.versionsOf(stored.fileId());
+        assertEquals(2, versions.size());
+        assertEquals("user-2", versions.get(0).replacedBy());
+        assertEquals("user-1", versions.get(1).replacedBy());
+        assertArrayEquals("v0".getBytes(), afterRestart.versionContent(stored.fileId(), 1).orElseThrow());
+        assertArrayEquals("v1".getBytes(), afterRestart.versionContent(stored.fileId(), 2).orElseThrow());
+    }
 }

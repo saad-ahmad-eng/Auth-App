@@ -67,7 +67,7 @@ class VaultServiceAuthIntegrationTest {
 
     @Test
     void testAuth001_validLoginReturnsSessionToken() throws Exception {
-        String token = client.login("alice", "AliceP@ss1");
+        String token = client.login("alice", "Alice2026Pass");
 
         assertNotNull(token);
         assertTrue(token.length() > 0);
@@ -117,12 +117,12 @@ class VaultServiceAuthIntegrationTest {
         }
 
         // Server is still healthy and correct credentials still work afterward.
-        assertDoesNotThrow(() -> client.login("alice", "AliceP@ss1"));
+        assertDoesNotThrow(() -> client.login("alice", "Alice2026Pass"));
     }
 
     @Test
     void logoutOfValidSessionSucceeds() throws Exception {
-        String token = client.login("bob", "BobP@ss1");
+        String token = client.login("bob", "Bob2026Pass");
 
         assertDoesNotThrow(() -> client.logout(token));
     }
@@ -137,7 +137,7 @@ class VaultServiceAuthIntegrationTest {
 
     @Test
     void testSession004_reusingTokenAfterLogoutIsRejected() throws Exception {
-        String token = client.login("alice", "AliceP@ss1");
+        String token = client.login("alice", "Alice2026Pass");
         client.logout(token);
 
         VaultServiceException ex = assertThrows(VaultServiceException.class,

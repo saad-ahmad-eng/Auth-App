@@ -1,8 +1,13 @@
 package com.authlock.common.tls;
 
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 
 /**
  * RMI-over-TLS bootstrap, per Security.md §7 / ADR-007 — the transport
@@ -68,6 +73,33 @@ public final class DevTlsSetup {
         System.setProperty("javax.net.ssl.trustStore", absolutePath);
         System.setProperty("javax.net.ssl.trustStorePassword", STORE_PASSWORD);
         System.setProperty("javax.net.ssl.trustStoreType", "PKCS12");
+    }
+
+    /**
+     * Builds an {@link SSLContext} from whatever keystore {@link #configure()}
+     * last set via the {@code javax.net.ssl.keyStore*} system properties.
+     * Added for the web UI's HTTPS listener (Phase 13 follow-up) to reuse the
+     * exact same certificate RMI-over-TLS uses — confirmed safe: {@code
+     * keytool -genkeypair} here sets no restrictive {@code KeyUsage}/{@code
+     * ExtendedKeyUsage} extension (only {@code SAN}), so the cert isn't
+     * scoped to one TLS role. {@link #configure()} must have already run.
+     */
+    public static SSLContext currentSslContext() throws GeneralSecurityException, IOException {
+        String path = System.getProperty("javax.net.ssl.keyStore");
+        String password = System.getProperty("javax.net.ssl.keyStorePassword");
+        String type = System.getProperty("javax.net.ssl.keyStoreType", "PKCS12");
+        if (path == null || password == null) {
+            throw new IllegalStateException("DevTlsSetup.configure() must run before currentSslContext().");
+        }
+        KeyStore keyStore = KeyStore.getInstance(type);
+        try (InputStream in = Files.newInputStream(Path.of(path))) {
+            keyStore.load(in, password.toCharArray());
+        }
+        KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        keyManagerFactory.init(keyStore, password.toCharArray());
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(keyManagerFactory.getKeyManagers(), null, null);
+        return sslContext;
     }
 
     /** Generates a self-signed dev certificate via {@code keytool} if none exists yet at {@code path}. */

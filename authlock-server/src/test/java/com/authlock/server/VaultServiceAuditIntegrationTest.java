@@ -102,8 +102,8 @@ class VaultServiceAuditIntegrationTest {
     /** One pass through every operation, success and failure, so every event type gets exercised. */
     private static void exerciseEveryAuditedOperation(SecretKey sharedKey) throws Exception {
         // LOGIN success + failure
-        aliceToken = client.login("alice", "AliceP@ss1");
-        bobToken = client.login("bob", "BobP@ss1");
+        aliceToken = client.login("alice", "Alice2026Pass");
+        bobToken = client.login("bob", "Bob2026Pass");
         attempt(() -> client.login("alice", "wrong-password"));
 
         // UPLOAD success + failure (path traversal filename)
@@ -167,8 +167,8 @@ class VaultServiceAuditIntegrationTest {
     void testSec005_noPasswordEverAppearsInTheLog() throws Exception {
         List<String> lines = Files.readAllLines(auditLogPath);
         for (String line : lines) {
-            assertFalse(line.contains("AliceP@ss1"), "plaintext password leaked into audit log: " + line);
-            assertFalse(line.contains("BobP@ss1"), "plaintext password leaked into audit log: " + line);
+            assertFalse(line.contains("Alice2026Pass"), "plaintext password leaked into audit log: " + line);
+            assertFalse(line.contains("Bob2026Pass"), "plaintext password leaked into audit log: " + line);
             assertFalse(line.contains("wrong-password"), "attempted password leaked into audit log: " + line);
         }
     }

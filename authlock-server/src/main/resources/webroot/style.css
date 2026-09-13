@@ -1,0 +1,300 @@
+/* AuthLock web UI — strict two-color design: #000000 and #ffffff only.
+   No grays, no accent colors. Emphasis is carried by weight, underline,
+   and borders instead of color. */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  color: #000000;
+  font-family: "Courier New", Courier, monospace;
+}
+
+body {
+  min-height: 100vh;
+}
+
+h1, h2 {
+  margin: 0 0 1rem 0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 3px solid #000000;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+#whoami {
+  font-weight: bold;
+  text-decoration: underline;
+}
+
+.user-id {
+  font-size: 0.8rem;
+  cursor: default;
+}
+
+.file-id {
+  font-size: 0.85rem;
+  border-bottom: 1px dotted #000000;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.drop-zone {
+  border: 2px dashed #000000;
+  padding: 1rem;
+  text-align: center;
+  margin-top: 0.75rem;
+}
+
+.drop-zone p {
+  margin: 0 0 0.5rem 0;
+  font-weight: bold;
+  font-size: 0.85rem;
+}
+
+.drop-zone.drag-over {
+  border-style: solid;
+  background: #000000;
+}
+
+.drop-zone.drag-over p,
+.drop-zone.drag-over input {
+  color: #ffffff;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.progress-track {
+  flex: 1;
+  height: 0.9rem;
+  border: 2px solid #000000;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #000000;
+}
+
+.progress-row span {
+  font-weight: bold;
+  font-size: 0.85rem;
+  min-width: 3.5rem;
+  text-align: right;
+}
+
+#searchInput {
+  margin-bottom: 0.5rem;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.sortable:hover {
+  text-decoration: underline;
+}
+
+dialog {
+  border: 3px solid #000000;
+  border-radius: 0;
+  padding: 1.25rem;
+  max-width: 90vw;
+  width: 640px;
+  background: #ffffff;
+  color: #000000;
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+#historyCloseBtn {
+  margin-top: 1rem;
+}
+
+.live-indicator {
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.panel {
+  border: 2px solid #000000;
+  padding: 1rem;
+}
+
+label {
+  display: block;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  font-weight: bold;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="file"],
+select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 2px solid #000000;
+  background: #ffffff;
+  color: #000000;
+  font-family: inherit;
+  font-size: 1rem;
+  border-radius: 0;
+}
+
+button {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  border: 2px solid #000000;
+  background: #000000;
+  color: #ffffff;
+  font-family: inherit;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+button:hover,
+button:focus-visible {
+  background: #ffffff;
+  color: #000000;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.topbar button {
+  margin-top: 0;
+  padding: 0.35rem 0.75rem;
+}
+
+.password-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.password-row input {
+  flex: 1;
+}
+
+.password-row button {
+  margin-top: 0;
+  padding: 0 0.75rem;
+  white-space: nowrap;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+th, td {
+  border: 1px solid #000000;
+  padding: 0.5rem;
+  text-align: left;
+  font-size: 0.9rem;
+  word-break: break-word;
+}
+
+th {
+  border-bottom: 2px solid #000000;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+td.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+td.actions button,
+td.actions a {
+  margin-top: 0;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+a.action-link {
+  display: inline-block;
+  border: 2px solid #000000;
+  background: #ffffff;
+  color: #000000;
+  text-decoration: none;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+}
+
+a.action-link:hover,
+a.action-link:focus-visible {
+  background: #000000;
+  color: #ffffff;
+}
+
+.lock-state {
+  font-weight: bold;
+}
+
+.lock-state.locked {
+  text-decoration: underline;
+}
+
+.hint {
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.error {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  border: 2px solid #000000;
+  font-weight: bold;
+}
+
+.error::before {
+  content: "! ";
+}
